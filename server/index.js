@@ -96,23 +96,37 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
-    let decodedFilename = file.originalname;
+    const originalNameFromRequest = file.originalname;
+    console.log(`Multer Filename - Received originalname: "${originalNameFromRequest}"`);
+
+    let nameAfterUriDecode = originalNameFromRequest;
     try {
-      // 优先尝试 decodeURIComponent，因为浏览器通常会用URI编码发送特殊字符
-      decodedFilename = decodeURIComponent(file.originalname);
-      console.log(`Multer Filename - decodeURIComponent success: ${decodedFilename}`);
+      // 阶段 1: 标准URI解码 (处理 %20 等)
+      nameAfterUriDecode = decodeURIComponent(originalNameFromRequest);
+      console.log(`Multer Filename - Stage 1 (decodeURIComponent) result: "${nameAfterUriDecode}"`);
     } catch (e) {
-      console.warn(`Multer Filename - decodeURIComponent FAILED for: ${file.originalname}, Error: ${e.message}. Trying latin1->utf8 fallback.`);
-      try {
-        // 如果 decodeURIComponent 失败，尝试 latin1 -> utf8 作为备选方案
-        decodedFilename = Buffer.from(file.originalname, 'latin1').toString('utf8');
-        console.log(`Multer Filename - latin1->utf8 success: ${decodedFilename}`);
-      } catch (e2) {
-        console.error(`Multer Filename - latin1->utf8 FAILED for: ${file.originalname}, Error: ${e2.message}. Using originalname as is.`);
-        // 如果两种解码都失败，保留原始名称，但这种情况通常意味着客户端编码非常规
-      }
+      console.warn(`Multer Filename - Stage 1 (decodeURIComponent) FAILED for "${originalNameFromRequest}", Error: ${e.message}. Proceeding with original value for Stage 2.`);
+      // 如果URI解码失败，nameAfterUriDecode 保持为 originalNameFromRequest
     }
-    cb(null, decodedFilename); // multer 使用此文件名保存临时文件
+
+    // 阶段 2: 尝试修复Mojibake (UTF-8字节被误认为latin1)
+    // 这一步操作的对象是 nameAfterUriDecode，即上一阶段的结果
+    let nameAfterMojibakeFix = Buffer.from(nameAfterUriDecode, 'latin1').toString('utf8');
+    console.log(`Multer Filename - Stage 2 (Buffer.from(latin1).toString(utf8)) on "${nameAfterUriDecode}" result: "${nameAfterMojibakeFix}"`);
+
+    // 启发式检查：如果阶段2的修复导致了大量''字符（Unicode替换字符），而阶段1的结果中没有，
+    // 这可能意味着阶段2的假设（即输入是latin1形式的UTF-8 mojibake）是错误的。
+    // JavaScript的 includes('') 可能不准确，更可靠的方式是检查是否所有字符都在有效范围内，
+    // 但为了简单起见，我们暂时保留这个启发式方法，或者考虑一个更简单的检查，比如长度变化。
+    // 一个更简单的检查：如果修复后的字符串只包含问号或特殊替换字符，可能修复失败。
+    if (nameAfterMojibakeFix.includes('') && !nameAfterUriDecode.includes('')) {
+       // 或者更严格： if (/^[\uFFFD?]+$/.test(nameAfterMojibakeFix) && nameAfterMojibakeFix.length > 0){
+      console.warn(`Multer Filename - Stage 2 conversion of "${nameAfterUriDecode}" to "${nameAfterMojibakeFix}" resulted in replacement characters (''). This might indicate it was not simple mojibake. Reverting to Stage 1 result: "${nameAfterUriDecode}"`);
+      nameAfterMojibakeFix = nameAfterUriDecode; // 如果产生乱码，则回退到阶段1的结果
+    }
+    
+    console.log(`Multer Filename - Final filename for multer: "${nameAfterMojibakeFix}"`);
+    cb(null, nameAfterMojibakeFix); // multer 使用此文件名保存临时文件
   }
 });
 

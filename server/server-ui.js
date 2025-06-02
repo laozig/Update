@@ -94,23 +94,32 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
-    let decodedFilename = file.originalname;
+    const originalNameFromRequest = file.originalname;
+    console.log(`Multer Filename (server-ui.js) - Received originalname: "${originalNameFromRequest}"`);
+
+    let nameAfterUriDecode = originalNameFromRequest;
     try {
-      // 优先尝试 decodeURIComponent，因为浏览器通常会用URI编码发送特殊字符
-      decodedFilename = decodeURIComponent(file.originalname);
-      console.log(`Multer Filename (server-ui.js) - decodeURIComponent success: ${decodedFilename}`);
+      // 阶段 1: 标准URI解码 (处理 %20 等)
+      nameAfterUriDecode = decodeURIComponent(originalNameFromRequest);
+      console.log(`Multer Filename (server-ui.js) - Stage 1 (decodeURIComponent) result: "${nameAfterUriDecode}"`);
     } catch (e) {
-      console.warn(`Multer Filename (server-ui.js) - decodeURIComponent FAILED for: ${file.originalname}, Error: ${e.message}. Trying latin1->utf8 fallback.`);
-      try {
-        // 如果 decodeURIComponent 失败，尝试 latin1 -> utf8 作为备选方案
-        decodedFilename = Buffer.from(file.originalname, 'latin1').toString('utf8');
-        console.log(`Multer Filename (server-ui.js) - latin1->utf8 success: ${decodedFilename}`);
-      } catch (e2) {
-        console.error(`Multer Filename (server-ui.js) - latin1->utf8 FAILED for: ${file.originalname}, Error: ${e2.message}. Using originalname as is.`);
-        // 如果两种解码都失败，保留原始名称
-      }
+      console.warn(`Multer Filename (server-ui.js) - Stage 1 (decodeURIComponent) FAILED for "${originalNameFromRequest}", Error: ${e.message}. Proceeding with original value for Stage 2.`);
+      // 如果URI解码失败，nameAfterUriDecode 保持为 originalNameFromRequest
     }
-    cb(null, decodedFilename); // multer 使用此文件名保存临时文件
+
+    // 阶段 2: 尝试修复Mojibake (UTF-8字节被误认为latin1)
+    // 这一步操作的对象是 nameAfterUriDecode，即上一阶段的结果
+    let nameAfterMojibakeFix = Buffer.from(nameAfterUriDecode, 'latin1').toString('utf8');
+    console.log(`Multer Filename (server-ui.js) - Stage 2 (Buffer.from(latin1).toString(utf8)) on "${nameAfterUriDecode}" result: "${nameAfterMojibakeFix}"`);
+
+    // 启发式检查
+    if (nameAfterMojibakeFix.includes('') && !nameAfterUriDecode.includes('')) {
+      console.warn(`Multer Filename (server-ui.js) - Stage 2 conversion of "${nameAfterUriDecode}" to "${nameAfterMojibakeFix}" resulted in replacement characters (''). Reverting to Stage 1 result: "${nameAfterUriDecode}"`);
+      nameAfterMojibakeFix = nameAfterUriDecode; // 如果产生乱码，则回退到阶段1的结果
+    }
+    
+    console.log(`Multer Filename (server-ui.js) - Final filename for multer: "${nameAfterMojibakeFix}"`);
+    cb(null, nameAfterMojibakeFix); // multer 使用此文件名保存临时文件
   }
 });
 
@@ -410,111 +419,15 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
     res.json({ message: '版本上传成功', version: newVersionInfo });
 
   } catch (err) {
-    console.error(`Upload Route (server-ui.js) - Error for project ${projectId}:`, err);
-    serverLogs.push(`上传失败: ${err.message}`);
-    res.status(500).json({ error: '上传失败，服务器内部错误' });
+    console.error(`Upload Route (server-ui.js) - Error uploading file:`, err);
+    res.status(500).json({ error: '上传文件时发生错误' });
   }
 });
 
-app.post('/start', (req, res) => {
-  if (serverRunning) {
-    return res.json({ running: true, message: '服务器已经在运行' });
-  }
-  try {
-    const mainServerScriptPath = path.join(__dirname, 'index.js');
-    addLog(`尝试启动更新服务: node ${mainServerScriptPath}`);
-    serverProcess = spawn('node', [mainServerScriptPath], { detached: true, stdio: 'pipe' });
-    
-    serverProcess.stdout.on('data', (data) => {
-      const logLine = data.toString().trim();
-      if (logLine) {
-        addLog(`[更新服务] ${logLine}`);
-      }
-    });
-    
-    serverProcess.stderr.on('data', (data) => {
-      const logLine = data.toString().trim();
-      if (logLine) {
-        addLog(`[错误] ${logLine}`);
-      }
-    });
-    
-    serverProcess.on('close', (code) => {
-      addLog(`更新服务已停止，退出代码: ${code}`);
-      serverRunning = false;
-    });
-
-    serverProcess.on('error', (err) => {
-      addLog(`更新服务进程错误: ${err.message}`);
-      serverRunning = false;
-    });
-    
-    setTimeout(() => {
-      if (serverProcess && !serverProcess.killed && serverProcess.exitCode === null) {
-        serverRunning = true;
-        addLog('✅ 更新服务已成功启动');
-        res.json({ running: true });
-      } else {
-        const failMessage = '❌ 更新服务未能成功启动或立即退出';
-        addLog(failMessage);
-        serverRunning = false;
-        res.status(500).json({ error: failMessage });
-      }
-    }, 1000);
-
-  } catch (error) {
-    const catchMessage = `启动更新服务时发生异常: ${error.message}`;
-    addLog(catchMessage);
-    res.status(500).json({ error: catchMessage });
-  }
-});
-
-app.post('/stop', (req, res) => {
-  if (!serverRunning || !serverProcess) {
-    return res.json({ running: false, message: '更新服务未在运行' });
-  }
-
-  try {
-    // 尝试优雅地终止进程
-    addLog('正在停止更新服务...');
-    
-    if (process.platform === 'win32') {
-      // Windows需要特殊处理
-      spawn('taskkill', ['/pid', serverProcess.pid, '/f', '/t']);
-    } else {
-      // Linux/Mac
-      process.kill(-serverProcess.pid, 'SIGTERM');
-    }
-    
-    // 设置超时，如果进程没有在一定时间内终止，则强制终止
-    setTimeout(() => {
-      if (serverProcess && !serverProcess.killed) {
-        try {
-          if (process.platform !== 'win32') {
-            process.kill(-serverProcess.pid, 'SIGKILL');
-          }
-        } catch (e) {
-          // 忽略错误，可能进程已经终止
-        }
-      }
-    }, 3000);
-    
-    serverProcess = null;
-    serverRunning = false;
-    addLog('✅ 更新服务已停止');
-    res.json({ running: false });
-  } catch (error) {
-    const errorMessage = `停止更新服务时发生错误: ${error.message}`;
-    addLog(errorMessage);
-    res.status(500).json({ error: errorMessage });
-  }
-});
-
-// 启动控制面板服务器
 app.listen(config.server.adminPort, () => {
   console.log(`控制面板运行在 http://localhost:${config.server.adminPort}`);
   serverLogs.push(`控制面板已启动，端口: ${config.server.adminPort}`);
-}); 
+});
 
 function showAlert(type, message) {
   const successAlert = document.getElementById('alertSuccess');
