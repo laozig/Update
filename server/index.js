@@ -174,13 +174,16 @@ app.get('/api/version/:projectId', (req, res) => {
     const uploadsDir = path.join(__dirname, 'projects', projectId, 'uploads');
     if (fs.existsSync(uploadsDir)) {
       const files = fs.readdirSync(uploadsDir);
-      // 查找匹配此版本的文件
-      const versionFile = files.find(file => file.includes(`-${latestVersion.version}.exe`));
+      // 查找匹配此版本的文件，支持下划线或连字符连接
+      const versionFile = files.find(file => 
+        file.includes(`_${latestVersion.version}.`) || 
+        file.includes(`-${latestVersion.version}.`)
+      );
       if (versionFile) {
         latestVersion.fileName = versionFile;
       } else {
         // 如果找不到匹配的文件，使用默认格式
-        latestVersion.fileName = `update-${latestVersion.version}.exe`;
+        latestVersion.fileName = `update_${latestVersion.version}.exe`;
       }
     }
   }
@@ -211,7 +214,7 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
 
     // 获取原始文件名并添加版本号
     const originalFileName = req.file.originalname;
-    // 在文件名和扩展名之间插入版本号
+    // 在文件名和扩展名之间插入版本号，使用下划线连接
     const lastDotIndex = originalFileName.lastIndexOf('.');
     let newFileName;
     
@@ -219,10 +222,10 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
       // 有扩展名的情况
       const nameWithoutExt = originalFileName.substring(0, lastDotIndex);
       const extension = originalFileName.substring(lastDotIndex);
-      newFileName = `${nameWithoutExt}-${version}${extension}`;
+      newFileName = `${nameWithoutExt}_${version}${extension}`;
     } else {
       // 没有扩展名的情况
-      newFileName = `${originalFileName}-${version}`;
+      newFileName = `${originalFileName}_${version}`;
     }
     
     // 重命名文件
@@ -281,7 +284,11 @@ app.get('/download/:projectId/latest', (req, res) => {
   // 如果找不到文件，尝试查找匹配版本号的文件
   if (!fs.existsSync(filePath)) {
     const files = fs.readdirSync(uploadsDir);
-    const versionFile = files.find(file => file.includes(`-${latestVersion.version}.exe`));
+    // 查找包含版本号的文件，支持下划线或连字符连接
+    const versionFile = files.find(file => 
+      file.includes(`_${latestVersion.version}.`) || 
+      file.includes(`-${latestVersion.version}.`)
+    );
     if (versionFile) {
       filePath = path.join(uploadsDir, versionFile);
     }
@@ -312,7 +319,11 @@ app.get('/download/:projectId/:version', (req, res) => {
   // 如果找不到文件，尝试查找匹配版本号的文件
   if (!fs.existsSync(filePath)) {
     const files = fs.readdirSync(uploadsDir);
-    const versionFile = files.find(file => file.includes(`-${version}.exe`));
+    // 查找包含版本号的文件，支持下划线或连字符连接
+    const versionFile = files.find(file => 
+      file.includes(`_${version}.`) || 
+      file.includes(`-${version}.`)
+    );
     if (versionFile) {
       filePath = path.join(uploadsDir, versionFile);
     }
