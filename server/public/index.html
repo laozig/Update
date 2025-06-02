@@ -135,8 +135,8 @@
           <div class="col-auto ms-3">
             <div id="status" class="badge bg-secondary fs-6">已停止</div>
           </div>
-        </div>
-
+    </div>
+    
         <h4>服务器日志</h4>
         <div id="logs" class="log-container mb-4"></div>
 
@@ -150,7 +150,7 @@
           </div>
         </div>
       </div>
-
+      
       <div class="tab-pane fade" id="uploadTab" role="tabpanel" aria-labelledby="upload-tab">
         <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
           <h1 class="h2">上传新版本</h1>
@@ -193,9 +193,9 @@
           <p class="text-center">请选择项目查看版本列表...</p>
         </div>
       </div>
+      </div>
     </div>
-  </div>
-
+    
   <!-- 添加项目模态框 -->
   <div class="modal fade" id="addProjectModal" tabindex="-1">
     <div class="modal-dialog">
@@ -227,8 +227,8 @@
         </div>
       </div>
     </div>
-  </div>
-
+    </div>
+    
   <!-- 项目设置模态框 -->
   <div class="modal fade" id="projectSettingsModal" tabindex="-1">
     <div class="modal-dialog">
@@ -500,7 +500,7 @@
         })
         .catch(err => showAlert('control', 'error', '启动服务器失败'));
     });
-
+    
     document.getElementById('stopBtn').addEventListener('click', () => {
       fetch('/stop', { method: 'POST' })
         .then(response => response.json())
@@ -530,11 +530,11 @@
       }
       
       fetch(`/api/upload/${projectId}`, { method: 'POST', body: formData })
-        .then(response => response.json())
-        .then(data => {
-          if (data.error) {
+      .then(response => response.json())
+      .then(data => {
+        if (data.error) {
             showAlert('upload', 'error', data.error);
-          } else {
+        } else {
             let msg = '版本上传成功！';
             if (data.version) {
               msg += `<br>版本号: ${data.version.version}`;
@@ -542,7 +542,7 @@
               if (data.version.downloadUrl) msg += `<br>下载链接: <a href="${data.version.downloadUrl}" target="_blank">${data.version.downloadUrl}</a>`;
             }
             showAlert('upload', 'success', msg);
-            form.reset();
+          form.reset();
             if (currentProject === projectId) {
               fetchVersions(projectId);
             }
