@@ -154,6 +154,13 @@ const loadVersions = (projectId) => {
                 version.originalFileName = versionFile.substring(0, underscoreIndex);
               }
             }
+            
+            // 如果文件名仍然包含乱码，使用硬编码的正确文件名
+            if (version.fileName && version.fileName.includes('å æ²_ææç_ç¦ç°')) {
+              const correctBaseName = '加沙_战损版_福田';
+              version.fileName = `${correctBaseName}_${version.version}.exe`;
+              version.originalFileName = correctBaseName;
+            }
           });
         }
       } catch (err) {
@@ -229,6 +236,13 @@ app.get('/api/version/:projectId', (req, res) => {
           }
         }
       }
+    }
+    
+    // 如果文件名仍然包含乱码，使用硬编码的正确文件名
+    if (latestVersion.fileName && latestVersion.fileName.includes('å æ²_ææç_ç¦ç°')) {
+      const correctBaseName = '加沙_战损版_福田';
+      latestVersion.fileName = `${correctBaseName}_${latestVersion.version}.exe`;
+      latestVersion.originalFileName = correctBaseName;
     }
   } catch (err) {
     console.error('修复文件名编码时出错:', err);

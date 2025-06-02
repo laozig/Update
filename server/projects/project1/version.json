@@ -1,5 +1,13 @@
 [
   {
+    "version": "23333333",
+    "releaseDate": "2025-06-02T10:31:13.240Z",
+    "downloadUrl": "http://update.tangyun.lat:3000/download/project1/23333333",
+    "releaseNotes": "版本 23333333 更新",
+    "fileName": "å æ²_ææç_ç¦ç°_23333333.exe",
+    "originalFileName": "å æ²_ææç_ç¦ç°"
+  },
+  {
     "version": "1111",
     "releaseDate": "2025-06-02T10:28:25.274Z",
     "downloadUrl": "http://update.tangyun.lat:3000/download/project1/1111",

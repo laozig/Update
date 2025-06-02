@@ -311,6 +311,13 @@ app.get('/api/versions/:projectId', (req, res) => {
             version.originalFileName = versionFile.substring(0, underscoreIndex);
           }
         }
+        
+        // 如果文件名仍然包含乱码，使用硬编码的正确文件名
+        if (version.fileName && version.fileName.includes('å æ²_ææç_ç¦ç°')) {
+          const correctBaseName = '加沙_战损版_福田';
+          version.fileName = `${correctBaseName}_${version.version}.exe`;
+          version.originalFileName = correctBaseName;
+        }
       });
     }
   } catch (err) {
