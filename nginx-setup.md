@@ -105,6 +105,27 @@ sudo systemctl restart nginx
 sudo systemctl enable nginx
 ```
 
+## 处理默认配置
+
+如果遇到访问服务器显示Nginx默认欢迎页面的问题，需要处理默认配置：
+
+1. 备份默认配置（可选）：
+```bash
+sudo cp /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/default.bak
+sudo cp /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.bak  # 如果存在
+```
+
+2. 删除或禁用默认配置：
+```bash
+sudo rm /etc/nginx/sites-enabled/default
+sudo rm /etc/nginx/conf.d/default.conf  # 如果存在
+```
+
+3. 重启Nginx：
+```bash
+sudo systemctl restart nginx
+```
+
 ## 防火墙配置
 
 确保服务器防火墙允许80端口通过：
@@ -137,7 +158,20 @@ sudo ufw status  # Ubuntu/Debian
 sudo firewall-cmd --list-all  # CentOS/RHEL
 ```
 
-2. 502/504错误：
+2. 显示默认Nginx欢迎页面：
+```bash
+# 检查是否存在默认配置
+ls -la /etc/nginx/sites-enabled/
+ls -la /etc/nginx/conf.d/
+
+# 检查当前使用的配置
+nginx -T | grep "server_name"
+
+# 确保我们的配置文件正确加载
+nginx -T | grep "update-server.conf"
+```
+
+3. 502/504错误：
 ```bash
 # 检查Node.js服务是否运行
 ps aux | grep node
@@ -146,7 +180,7 @@ ps aux | grep node
 sudo tail -f /var/log/nginx/error.log
 ```
 
-3. 权限问题：
+4. 权限问题：
 ```bash
 # 确保Nginx用户有权限访问应用目录
 sudo chown -R www-data:www-data /opt/Update/server/public
