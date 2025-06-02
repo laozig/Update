@@ -5,22 +5,17 @@ yarn-debug.log
 yarn-error.log
 
 # 项目文件
-projects/*/uploads/
+server/projects/*/uploads/
 *.exe
 *.log
 logs/
+server.log
 
 # 配置文件
-config.json
+server/config.json
 .env
 .env.local
 .env.*.local
-
-# Nginx
-nginx.conf
-*.conf.d/
-sites-available/
-sites-enabled/
 
 # IDE
 .idea/
@@ -82,16 +77,6 @@ yarn-error.log*
 dist/
 build/
 out/
-
-# 构建输出
-dist/
-build/
-out/
-
-# 备份文件
-*.bak
-*.backup
-*~
 
 # 系统文件
 Thumbs.db

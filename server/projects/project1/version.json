@@ -1,5 +1,12 @@
 [
   {
+    "version": "12332",
+    "releaseDate": "2025-06-02T08:40:24.272Z",
+    "downloadUrl": "/download/project1/12332",
+    "releaseNotes": "版本 12332 更新",
+    "fileName": "app-12332.exe"
+  },
+  {
     "version": "12",
     "releaseDate": "2025-06-02T06:00:27.448Z",
     "downloadUrl": "/download/project1/12",

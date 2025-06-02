@@ -13,6 +13,7 @@ const uiPort = 8080;
 let serverProcess = null;
 let serverRunning = false;
 let serverLogs = [];
+const MAX_LOGS = 1000; // 最大保存日志行数
 
 // 加载系统配置
 const configPath = path.join(__dirname, 'config.json');
@@ -22,7 +23,8 @@ let config = {
     port: 3000,
     adminPort: 8080,
     adminUsername: 'admin',
-    adminPassword: 'admin'
+    adminPassword: 'admin',
+    serverIp: '103.97.179.230'
   }
 };
 
@@ -37,6 +39,7 @@ const loadConfig = () => {
     }
   } catch (err) {
     console.error('加载配置失败:', err);
+    serverLogs.push(`[错误] 加载配置失败: ${err.message}`);
   }
 };
 
@@ -46,11 +49,32 @@ const saveConfig = () => {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
   } catch (err) {
     console.error('保存配置失败:', err);
+    serverLogs.push(`[错误] 保存配置失败: ${err.message}`);
+  }
+};
+
+// 日志管理
+const addLog = (message) => {
+  const timestamp = new Date().toLocaleString();
+  const logEntry = `[${timestamp}] ${message}`;
+  serverLogs.push(logEntry);
+  
+  // 保持日志在最大限制内
+  if (serverLogs.length > MAX_LOGS) {
+    serverLogs = serverLogs.slice(-MAX_LOGS);
+  }
+  
+  // 可选：写入日志文件
+  try {
+    fs.appendFileSync(path.join(__dirname, '..', 'server.log'), logEntry + '\n');
+  } catch (err) {
+    console.error('写入日志失败:', err);
   }
 };
 
 // 初始化加载配置
 loadConfig();
+addLog('控制面板服务启动');
 
 // 基本认证配置
 app.use(basicAuth({
@@ -85,6 +109,24 @@ const upload = multer({
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// 修改index.html以注入服务器IP
+app.get('/', (req, res) => {
+  const indexPath = path.join(__dirname, 'public', 'index.html');
+  fs.readFile(indexPath, 'utf8', (err, data) => {
+    if (err) {
+      console.error('读取index.html失败:', err);
+      return res.status(500).send('服务器错误');
+    }
+    
+    // 注入服务器IP地址
+    const serverIp = config.server.serverIp || '103.97.179.230';
+    const modifiedHtml = data.replace('</head>', 
+      `<script>window.serverIp = "${serverIp}";</script></head>`);
+    
+    res.send(modifiedHtml);
+  });
+});
 
 // 版本信息管理
 const getVersionFilePath = (projectId) => {
@@ -326,75 +368,90 @@ app.post('/start', (req, res) => {
   }
   try {
     const mainServerScriptPath = path.join(__dirname, 'index.js');
-    console.log(`尝试启动主服务器: node ${mainServerScriptPath}`);
+    addLog(`尝试启动更新服务: node ${mainServerScriptPath}`);
     serverProcess = spawn('node', [mainServerScriptPath], { detached: true, stdio: 'pipe' });
     
     serverProcess.stdout.on('data', (data) => {
       const logLine = data.toString().trim();
-      console.log('Main Server STDOUT:', logLine);
-      serverLogs.push(logLine);
-      if (serverLogs.length > 200) serverLogs.shift();
+      if (logLine) {
+        addLog(`[更新服务] ${logLine}`);
+      }
     });
     
     serverProcess.stderr.on('data', (data) => {
-      const logLine = `错误: ${data.toString().trim()}`;
-      console.error('Main Server STDERR:', logLine);
-      serverLogs.push(logLine);
-      if (serverLogs.length > 200) serverLogs.shift();
+      const logLine = data.toString().trim();
+      if (logLine) {
+        addLog(`[错误] ${logLine}`);
+      }
     });
     
     serverProcess.on('close', (code) => {
-      const logMessage = `主服务器已停止，退出代码: ${code}`;
-      console.log(logMessage);
-      serverLogs.push(logMessage);
+      addLog(`更新服务已停止，退出代码: ${code}`);
       serverRunning = false;
     });
 
     serverProcess.on('error', (err) => {
-      const errorMessage = `主服务器进程错误: ${err.message}`;
-      console.error(errorMessage);
-      serverLogs.push(errorMessage);
+      addLog(`更新服务进程错误: ${err.message}`);
       serverRunning = false;
     });
     
     setTimeout(() => {
       if (serverProcess && !serverProcess.killed && serverProcess.exitCode === null) {
         serverRunning = true;
-        serverLogs.push('主服务器已启动');
-        console.log('主服务器已启动。');
+        addLog('✅ 更新服务已成功启动');
         res.json({ running: true });
       } else {
-        const failMessage = '主服务器未能成功启动或立即退出。';
-        console.error(failMessage);
-        serverLogs.push(failMessage);
+        const failMessage = '❌ 更新服务未能成功启动或立即退出';
+        addLog(failMessage);
         serverRunning = false;
         res.status(500).json({ error: failMessage });
       }
     }, 1000);
 
   } catch (error) {
-    const catchMessage = `启动主服务器时发生异常: ${error.message}`;
-    console.error(catchMessage, error);
-    serverLogs.push(catchMessage);
+    const catchMessage = `启动更新服务时发生异常: ${error.message}`;
+    addLog(catchMessage);
     res.status(500).json({ error: catchMessage });
   }
 });
 
 app.post('/stop', (req, res) => {
   if (!serverRunning || !serverProcess) {
-    return res.json({ running: false, message: '服务器未在运行' });
+    return res.json({ running: false, message: '更新服务未在运行' });
   }
 
   try {
-    process.kill(-serverProcess.pid);
+    // 尝试优雅地终止进程
+    addLog('正在停止更新服务...');
+    
+    if (process.platform === 'win32') {
+      // Windows需要特殊处理
+      spawn('taskkill', ['/pid', serverProcess.pid, '/f', '/t']);
+    } else {
+      // Linux/Mac
+      process.kill(-serverProcess.pid, 'SIGTERM');
+    }
+    
+    // 设置超时，如果进程没有在一定时间内终止，则强制终止
+    setTimeout(() => {
+      if (serverProcess && !serverProcess.killed) {
+        try {
+          if (process.platform !== 'win32') {
+            process.kill(-serverProcess.pid, 'SIGKILL');
+          }
+        } catch (e) {
+          // 忽略错误，可能进程已经终止
+        }
+      }
+    }, 3000);
+    
     serverProcess = null;
     serverRunning = false;
-    serverLogs.push('主服务器已停止');
+    addLog('✅ 更新服务已停止');
     res.json({ running: false });
   } catch (error) {
-    const errorMessage = `停止服务器时发生错误: ${error.message}`;
-    console.error(errorMessage);
-    serverLogs.push(errorMessage);
+    const errorMessage = `停止更新服务时发生错误: ${error.message}`;
+    addLog(errorMessage);
     res.status(500).json({ error: errorMessage });
   }
 });

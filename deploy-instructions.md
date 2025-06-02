@@ -1,6 +1,6 @@
-# 更新服务器部署指南 (Ubuntu)
+# 更新服务器部署指南
 
-本文档提供在Ubuntu服务器上部署更新服务器的详细步骤。
+本文档提供在服务器上部署更新服务器的详细步骤。
 
 ## 服务器要求
 
@@ -8,13 +8,12 @@
 - 内存: 最低1GB，推荐2GB+
 - 存储: 最低10GB可用空间
 - CPU: 1核心+
-- 网络: 公网IP，80端口开放
+- 网络: 公网IP
 
 ## 软件要求
 
 - Node.js 14+
 - npm 6+
-- Nginx 1.18+
 - Git（可选，用于从仓库拉取代码）
 
 ## 一键部署步骤
@@ -40,7 +39,7 @@ sudo ./start.sh
 ```
 
 5. 访问控制面板:
-   - URL: http://服务器IP地址/
+   - URL: http://服务器IP地址:8080/
    - 默认账号: admin
    - 默认密码: admin
 
@@ -60,19 +59,7 @@ curl -fsSL https://rpm.nodesource.com/setup_16.x | sudo bash -
 sudo yum install -y nodejs
 ```
 
-### 2. 安装Nginx
-
-```bash
-# Ubuntu/Debian
-sudo apt update
-sudo apt install -y nginx
-
-# CentOS/RHEL
-sudo yum install -y epel-release
-sudo yum install -y nginx
-```
-
-### 3. 配置项目目录
+### 2. 配置项目目录
 
 ```bash
 # 创建项目目录
@@ -84,7 +71,7 @@ sudo mkdir -p /opt/Update/server/public
 sudo chown -R $(whoami):$(whoami) /opt/Update
 ```
 
-### 4. 上传或克隆项目文件
+### 3. 上传或克隆项目文件
 
 ```bash
 # 使用Git克隆
@@ -94,97 +81,14 @@ git clone https://github.com/laozig/Update.git /opt/Update
 # unzip update.zip -d /opt/Update
 ```
 
-### 5. 安装依赖
+### 4. 安装依赖
 
 ```bash
 cd /opt/Update
 npm install --production
 ```
 
-### 6. 配置Nginx
-
-1. 备份默认配置（如果需要）:
-```bash
-sudo cp /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/default.bak
-sudo cp /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.bak 2>/dev/null || true
-```
-
-2. 删除默认配置:
-```bash
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo rm -f /etc/nginx/conf.d/default.conf 2>/dev/null || true
-```
-
-3. 创建新的配置文件:
-```bash
-sudo nano /etc/nginx/conf.d/update-server.conf
-```
-
-4. 添加以下内容:
-```nginx
-server {
-    listen 80;
-    listen [::]:80;
-    server_name 103.97.179.230;  # 替换为您的服务器IP或域名
-    client_max_body_size 100M;
-
-    # 控制面板 - 转发到8080端口
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300;
-        proxy_connect_timeout 300;
-    }
-
-    # 更新服务API - 转发到3000端口
-    location /api/ {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300;
-        proxy_connect_timeout 300;
-    }
-
-    # 下载路由 - 转发到3000端口
-    location /download/ {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300;
-        proxy_connect_timeout 300;
-    }
-
-    # 错误页面
-    location = /error.html {
-        root /opt/Update/server/public;
-        internal;
-    }
-}
-```
-
-5. 检查并重启Nginx:
-```bash
-sudo nginx -t
-sudo systemctl restart nginx
-```
-
-### 7. 启动服务
+### 5. 启动服务
 
 1. 启动更新服务:
 ```bash
@@ -198,7 +102,7 @@ cd /opt/Update
 nohup node server/server-ui.js > server.log 2>&1 &
 ```
 
-### 8. 设置开机自启
+### 6. 设置开机自启
 
 1. 创建systemd服务文件:
 ```bash
@@ -238,25 +142,22 @@ sudo systemctl start update-server
 
 ### 1. 无法访问控制面板
 
-如果访问 http://服务器IP/ 显示Nginx默认欢迎页面:
+检查以下几点:
 
-1. 检查默认配置是否已删除:
+1. 确认服务正在运行:
 ```bash
-ls -la /etc/nginx/sites-enabled/
-ls -la /etc/nginx/conf.d/
+ps aux | grep node
 ```
 
-2. 检查当前使用的配置:
+2. 检查端口是否正常监听:
 ```bash
-nginx -T | grep "server_name"
-nginx -T | grep "update-server.conf"
+netstat -tlpn | grep -E ':8080|:3000'
 ```
 
-3. 确认配置文件正确加载:
+3. 确认防火墙允许访问这些端口:
 ```bash
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo rm -f /etc/nginx/conf.d/default.conf
-sudo systemctl restart nginx
+sudo ufw status  # Ubuntu
+sudo firewall-cmd --list-all  # CentOS
 ```
 
 ### 2. 服务启动失败
@@ -274,7 +175,7 @@ npm install --production
 
 3. 检查端口占用:
 ```bash
-netstat -tlpn | grep -E ':80|:8080|:3000'
+netstat -tlpn | grep -E ':8080|:3000'
 ```
 
 4. 查看日志:
@@ -288,7 +189,6 @@ tail -f /opt/Update/server-api.log
 1. 检查并配置UFW (Ubuntu):
 ```bash
 sudo ufw status
-sudo ufw allow 80/tcp
 sudo ufw allow 8080/tcp
 sudo ufw allow 3000/tcp
 ```
@@ -296,7 +196,6 @@ sudo ufw allow 3000/tcp
 2. 检查并配置Firewalld (CentOS):
 ```bash
 sudo firewall-cmd --list-all
-sudo firewall-cmd --permanent --add-port=80/tcp
 sudo firewall-cmd --permanent --add-port=8080/tcp
 sudo firewall-cmd --permanent --add-port=3000/tcp
 sudo firewall-cmd --reload
@@ -324,6 +223,5 @@ sudo ./start.sh
 
 ## 注意事项
 
-- 生产环境建议使用HTTPS，可以配合Nginx反向代理实现
 - 考虑添加身份验证机制保护控制面板
 - 定期备份`server/version.json`和上传的应用程序文件 

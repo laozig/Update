@@ -62,9 +62,23 @@ const apiKeyAuth = (req, res, next) => {
 
 // CORS 配置
 app.use(cors({
-  origin: ['http://103.97.179.230', 'http://localhost:8080', 'http://localhost:3000'],
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'x-api-key'],
+  origin: function(origin, callback) {
+    const allowedOrigins = [
+      `http://${config.server.serverIp || '103.97.179.230'}`,
+      `https://${config.server.serverIp || '103.97.179.230'}`,
+      'http://localhost:8080',
+      'http://localhost:3000'
+    ];
+    // 允许没有来源的请求（如移动应用）
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('不允许的来源'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-api-key', 'Authorization'],
+  credentials: true
 }));
 
 // 中间件

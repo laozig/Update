@@ -4,14 +4,14 @@ After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
-# 替换为你的实际部署路径
-WorkingDirectory=/path/to/update/server
-ExecStart=/usr/bin/node server/server-ui.js
+User=root
+WorkingDirectory=/opt/Update
+ExecStart=/bin/bash -c './start.sh'
+ExecStop=/bin/bash -c './stop.sh'
 Restart=on-failure
 RestartSec=10
-StandardOutput=syslog
-StandardError=syslog
+StandardOutput=journal
+StandardError=journal
 SyslogIdentifier=update-server
 Environment=NODE_ENV=production
 
