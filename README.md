@@ -21,14 +21,13 @@ chmod +x start.sh stop.sh
 ```
 
 ## 系统说明
-这是一个支持多项目的EXE程序自动更新后端系统，支持多项目管理、版本控制和自动更新功能。系统采用Node.js开发，通过Nginx反向代理提供服务，支持多个项目的独立版本管理和更新。
+这是一个支持多项目的EXE程序自动更新后端系统，支持多项目管理、版本控制和自动更新功能。系统采用Node.js开发，支持多个项目的独立版本管理和更新。
 
 ## 系统架构
 
 ### 核心组件
-- **更新服务器** (server/index.js): 处理版本检查和文件下载请求
-- **控制面板** (server/server-ui.js): 提供Web界面管理项目和版本
-- **Nginx反向代理**: 统一端口访问，提供HTTP服务
+- **更新服务器** (server/index.js): 处理版本检查和文件下载请求，端口3000
+- **控制面板** (server/server-ui.js): 提供Web界面管理项目和版本，端口8080
 - **项目配置** (server/config.json): 存储系统和项目配置
 - **版本管理** (server/projects/*/version.json): 各项目版本信息
 
@@ -42,7 +41,6 @@ chmod +x start.sh stop.sh
 ### 1. 服务器环境准备
 确保服务器已安装：
 - Node.js (v14+)
-- Nginx
 - npm
 
 ### 2. 部署步骤
@@ -69,7 +67,7 @@ sudo ./stop.sh
 ```
 
 ### 3. 访问控制面板
-- 地址：http://your-server/
+- 地址：http://your-server:8080/
 - 默认管理员账号：admin
 - 默认管理员密码：admin
 
@@ -176,7 +174,6 @@ sudo ./stop.sh
 ### start.sh
 一键启动脚本，自动完成：
 - 清理旧日志
-- 配置Nginx反向代理
 - 安装Node.js依赖
 - 启动Node.js服务
 - 设置日志自动清理
@@ -184,13 +181,12 @@ sudo ./stop.sh
 ### stop.sh
 一键停止脚本，自动完成：
 - 停止Node.js服务
-- 停止Nginx服务
 - 清理进程
 
 ## API 接口
 
 ### 1. 获取版本信息
-- URL: `/api/version/:projectId`
+- URL: `http://your-server:3000/api/version/:projectId`
 - 方法: GET
 - 参数: 
   - projectId: 项目ID
@@ -207,7 +203,7 @@ sudo ./stop.sh
 ```
 
 ### 2. 下载最新版本
-- URL: `/download/:projectId/latest`
+- URL: `http://your-server:3000/download/:projectId/latest`
 - 方法: GET
 - 参数:
   - projectId: 项目ID
@@ -215,7 +211,7 @@ sudo ./stop.sh
 - 响应: 二进制文件流
 
 ### 3. 下载指定版本
-- URL: `/download/:projectId/:version`
+- URL: `http://your-server:3000/download/:projectId/:version`
 - 方法: GET
 - 参数:
   - projectId: 项目ID
@@ -224,7 +220,7 @@ sudo ./stop.sh
 - 响应: 二进制文件流
 
 ### 4. 获取项目列表
-- URL: `/api/projects`
+- URL: `http://your-server:3000/api/projects`
 - 方法: GET
 - 描述: 获取所有项目的基本信息
 - 响应示例:
@@ -246,7 +242,7 @@ sudo ./stop.sh
 ```
 
 ### 5. 获取项目详情
-- URL: `/api/projects/:projectId`
+- URL: `http://your-server:3000/api/projects/:projectId`
 - 方法: GET
 - 参数:
   - projectId: 项目ID
@@ -263,7 +259,7 @@ sudo ./stop.sh
 ```
 
 ### 6. 添加项目
-- URL: `/api/projects`
+- URL: `http://your-server:3000/api/projects`
 - 方法: POST
 - 描述: 添加新项目
 - 请求体示例:
@@ -276,7 +272,7 @@ sudo ./stop.sh
 ```
 
 ### 7. 编辑项目
-- URL: `/api/projects/:projectId`
+- URL: `http://your-server:3000/api/projects/:projectId`
 - 方法: PUT
 - 参数:
   - projectId: 项目ID
@@ -290,14 +286,14 @@ sudo ./stop.sh
 ```
 
 ### 8. 删除项目
-- URL: `/api/projects/:projectId`
+- URL: `http://your-server:3000/api/projects/:projectId`
 - 方法: DELETE
 - 参数:
   - projectId: 项目ID
 - 描述: 删除指定项目
 
 ### 9. 重置项目API密钥
-- URL: `/api/projects/:projectId/reset-key`
+- URL: `http://your-server:3000/api/projects/:projectId/reset-key`
 - 方法: POST
 - 参数:
   - projectId: 项目ID
@@ -310,7 +306,7 @@ sudo ./stop.sh
 ```
 
 ### 10. 获取项目版本列表
-- URL: `/api/versions/:projectId`
+- URL: `http://your-server:3000/api/versions/:projectId`
 - 方法: GET
 - 参数:
   - projectId: 项目ID
@@ -338,7 +334,7 @@ sudo ./stop.sh
 ```
 
 ### 11. 上传新版本
-- URL: `/api/upload/:projectId`
+- URL: `http://your-server:3000/api/upload/:projectId`
 - 方法: POST
 - 参数:
   - projectId: 项目ID
@@ -370,7 +366,6 @@ sudo ./stop.sh
 - 查看版本详情
 
 ## 端口说明
-- 80: Nginx反向代理
 - 8080: 控制面板
 - 3000: 更新服务
 
@@ -441,7 +436,7 @@ public class VersionInfo
 解决：
 ```bash
 # 检查端口占用
-netstat -tlpn | grep -E ':80|:8080|:3000'
+netstat -tlpn | grep -E ':8080|:3000'
 
 # 检查Node.js版本
 node -v
@@ -453,18 +448,14 @@ npm install --production
 
 ### 2. 无法访问控制面板
 检查：
-- Nginx是否正常运行
-- 防火墙是否放行80端口
+- 防火墙是否放行8080端口
 - 服务器安全组设置
-- 配置文件是否正确
+- 服务是否正常运行
 
 解决：
 ```bash
-# 检查Nginx状态
-systemctl status nginx
-
-# 检查配置
-nginx -t
+# 检查服务状态
+ps aux | grep node
 
 # 检查防火墙
 ufw status
@@ -526,6 +517,5 @@ mkdir -p /opt/Update/server/projects/your-project-id/uploads
 
 1. 修改默认管理员密码
 2. 使用强API密钥
-3. 配置HTTPS
-4. 限制IP访问
-5. 定期备份数据 
+3. 限制IP访问
+4. 定期备份数据 
