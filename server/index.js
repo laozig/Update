@@ -135,6 +135,31 @@ const loadVersions = (projectId) => {
         }
       });
       
+      // 修复可能的文件名乱码
+      try {
+        const uploadsDir = path.join(__dirname, 'projects', projectId, 'uploads');
+        if (fs.existsSync(uploadsDir)) {
+          const files = fs.readdirSync(uploadsDir);
+          
+          // 遍历所有版本，修复文件名
+          versions.forEach(version => {
+            // 查找匹配此版本的文件
+            const versionFile = files.find(file => file.includes(`_${version.version}.`));
+            if (versionFile) {
+              version.fileName = versionFile;
+              // 更新originalFileName
+              const dotIndex = versionFile.lastIndexOf('.');
+              const underscoreIndex = versionFile.lastIndexOf('_');
+              if (dotIndex !== -1 && underscoreIndex !== -1 && underscoreIndex < dotIndex) {
+                version.originalFileName = versionFile.substring(0, underscoreIndex);
+              }
+            }
+          });
+        }
+      } catch (err) {
+        console.error('修复文件名编码时出错:', err);
+      }
+      
       return versions;
     }
     return [];
@@ -185,9 +210,29 @@ app.get('/api/version/:projectId', (req, res) => {
     latestVersion.downloadUrl = `http://update.tangyun.lat:${config.server.port}/download/${projectId}/${latestVersion.version}`;
   }
   
-  // 直接使用原始文件名加版本号格式
-  const originalFileName = latestVersion.originalFileName || `update`;
-  latestVersion.fileName = `${originalFileName}_${latestVersion.version}.exe`;
+  // 确保文件名编码正确
+  try {
+    if (latestVersion.fileName) {
+      // 尝试修复可能的乱码文件名
+      const uploadsDir = path.join(__dirname, 'projects', projectId, 'uploads');
+      if (fs.existsSync(uploadsDir)) {
+        const files = fs.readdirSync(uploadsDir);
+        // 查找匹配此版本的文件
+        const versionFile = files.find(file => file.includes(`_${latestVersion.version}.`));
+        if (versionFile) {
+          latestVersion.fileName = versionFile;
+          // 更新originalFileName
+          const dotIndex = versionFile.lastIndexOf('.');
+          const underscoreIndex = versionFile.lastIndexOf('_');
+          if (dotIndex !== -1 && underscoreIndex !== -1 && underscoreIndex < dotIndex) {
+            latestVersion.originalFileName = versionFile.substring(0, underscoreIndex);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('修复文件名编码时出错:', err);
+  }
   
   res.json(latestVersion);
 });

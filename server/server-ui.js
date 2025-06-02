@@ -291,6 +291,32 @@ app.get('/logs', (req, res) => {
 app.get('/api/versions/:projectId', (req, res) => {
   const { projectId } = req.params;
   const versions = loadVersions(projectId);
+  
+  // 修复可能的文件名乱码
+  try {
+    const uploadsDir = path.join(__dirname, 'projects', projectId, 'uploads');
+    if (fs.existsSync(uploadsDir)) {
+      const files = fs.readdirSync(uploadsDir);
+      
+      // 遍历所有版本，修复文件名
+      versions.forEach(version => {
+        // 查找匹配此版本的文件
+        const versionFile = files.find(file => file.includes(`_${version.version}.`));
+        if (versionFile) {
+          version.fileName = versionFile;
+          // 更新originalFileName
+          const dotIndex = versionFile.lastIndexOf('.');
+          const underscoreIndex = versionFile.lastIndexOf('_');
+          if (dotIndex !== -1 && underscoreIndex !== -1 && underscoreIndex < dotIndex) {
+            version.originalFileName = versionFile.substring(0, underscoreIndex);
+          }
+        }
+      });
+    }
+  } catch (err) {
+    console.error('修复文件名编码时出错:', err);
+  }
+  
   res.json({ versions });
 });
 
