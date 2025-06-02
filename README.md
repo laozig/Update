@@ -213,9 +213,11 @@ Update/
 ├── package.json
 ├── package-lock.json           # 或 yarn.lock
 ├── README.md                   # 本文档 (中文)
-├── README.en.md                # 英文版README (如果提供)
-├── deploy-instructions.md      # 详细部署指南
-└── multi-project-design.md     # 多项目架构设计文档
+├── README.en.md                # 英文版README
+├── deploy-instructions.md      # 详细部署指南 (中文)
+├── deploy-instructions.en.md   # 详细部署指南 (英文)
+├── multi-project-design.md     # 多项目架构设计文档 (中文)
+└── multi-project-design.en.md  # 多项目架构设计文档 (英文)
 ```
 
 ## 8. 配置详解
