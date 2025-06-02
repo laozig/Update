@@ -139,6 +139,7 @@ const saveVersions = (projectId, versions) => {
 
 // 初始化加载配置
 loadConfig();
+console.log(`服务器配置已加载，域名: ${config.server.serverIp || 'update.tangyun.lat'}`);
 
 // 路由
 
@@ -162,8 +163,8 @@ app.get('/api/version/:projectId', (req, res) => {
   
   // 确保返回的downloadUrl包含完整域名
   const latestVersion = {...versions[0]};
-  if (!latestVersion.downloadUrl.startsWith('http')) {
-    latestVersion.downloadUrl = `http://${config.server.serverIp}:${config.server.port}${latestVersion.downloadUrl}`;
+  if (!latestVersion.downloadUrl.startsWith('http') || latestVersion.downloadUrl.includes('undefined')) {
+    latestVersion.downloadUrl = `http://update.tangyun.lat:${config.server.port}/download/${projectId}/${latestVersion.version}`;
   }
   
   res.json(latestVersion);
@@ -193,7 +194,7 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
     const newVersionInfo = {
       version,
       releaseDate: new Date().toISOString(),
-      downloadUrl: `http://${config.server.serverIp}:${config.server.port}/download/${projectId}/${version}`,
+      downloadUrl: `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}/download/${projectId}/${version}`,
       releaseNotes: releaseNotes || `版本 ${version} 更新`,
       fileName: req.file.originalname.replace(/\.exe$/, '') + `-${version}.exe`
     };
@@ -268,5 +269,5 @@ app.use((err, req, res, next) => {
 
 // 启动服务器
 app.listen(port, () => {
-  console.log(`更新服务器运行在 http://localhost:${port}`);
+  console.log(`更新服务器运行在 http://${config.server.serverIp || 'update.tangyun.lat'}:${port}`);
 }); 
