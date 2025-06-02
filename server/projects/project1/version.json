@@ -1,5 +1,13 @@
 [
   {
+    "version": "23456",
+    "releaseDate": "2025-06-02T10:49:32.227Z",
+    "downloadUrl": "http://update.tangyun.lat:3000/download/project1/23456",
+    "releaseNotes": "版本 23456 更新",
+    "fileName": "加沙_战损版_福田_23456.exe",
+    "originalFileName": "加沙_战损版_福田"
+  },
+  {
     "version": "1111",
     "releaseDate": "2025-06-02T10:45:44.783Z",
     "downloadUrl": "http://update.tangyun.lat:3000/download/project1/1111",

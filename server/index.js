@@ -97,36 +97,26 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const originalNameFromRequest = file.originalname;
-    console.log(`Multer Filename - Received originalname: "${originalNameFromRequest}"`);
+    // console.log(`Multer Filename - Received originalname: "${originalNameFromRequest}"`);
 
     let nameAfterUriDecode = originalNameFromRequest;
     try {
-      // 阶段 1: 标准URI解码 (处理 %20 等)
       nameAfterUriDecode = decodeURIComponent(originalNameFromRequest);
-      console.log(`Multer Filename - Stage 1 (decodeURIComponent) result: "${nameAfterUriDecode}"`);
+      // console.log(`Multer Filename - Stage 1 (decodeURIComponent) result: "${nameAfterUriDecode}"`);
     } catch (e) {
-      console.warn(`Multer Filename - Stage 1 (decodeURIComponent) FAILED for "${originalNameFromRequest}", Error: ${e.message}. Proceeding with original value for Stage 2.`);
-      // 如果URI解码失败，nameAfterUriDecode 保持为 originalNameFromRequest
+      // console.warn(`Multer Filename - Stage 1 (decodeURIComponent) FAILED for "${originalNameFromRequest}", Error: ${e.message}. Proceeding with original value for Stage 2.`);
     }
 
-    // 阶段 2: 尝试修复Mojibake (UTF-8字节被误认为latin1)
-    // 这一步操作的对象是 nameAfterUriDecode，即上一阶段的结果
     let nameAfterMojibakeFix = Buffer.from(nameAfterUriDecode, 'latin1').toString('utf8');
-    console.log(`Multer Filename - Stage 2 (Buffer.from(latin1).toString(utf8)) on "${nameAfterUriDecode}" result: "${nameAfterMojibakeFix}"`);
+    // console.log(`Multer Filename - Stage 2 (Buffer.from(latin1).toString(utf8)) on "${nameAfterUriDecode}" result: "${nameAfterMojibakeFix}"`);
 
-    // 启发式检查：如果阶段2的修复导致了大量''字符（Unicode替换字符），而阶段1的结果中没有，
-    // 这可能意味着阶段2的假设（即输入是latin1形式的UTF-8 mojibake）是错误的。
-    // JavaScript的 includes('') 可能不准确，更可靠的方式是检查是否所有字符都在有效范围内，
-    // 但为了简单起见，我们暂时保留这个启发式方法，或者考虑一个更简单的检查，比如长度变化。
-    // 一个更简单的检查：如果修复后的字符串只包含问号或特殊替换字符，可能修复失败。
     if (nameAfterMojibakeFix.includes('') && !nameAfterUriDecode.includes('')) {
-       // 或者更严格： if (/^[\uFFFD?]+$/.test(nameAfterMojibakeFix) && nameAfterMojibakeFix.length > 0){
-      console.warn(`Multer Filename - Stage 2 conversion of "${nameAfterUriDecode}" to "${nameAfterMojibakeFix}" resulted in replacement characters (''). This might indicate it was not simple mojibake. Reverting to Stage 1 result: "${nameAfterUriDecode}"`);
-      nameAfterMojibakeFix = nameAfterUriDecode; // 如果产生乱码，则回退到阶段1的结果
+      // console.warn(`Multer Filename - Stage 2 conversion of "${nameAfterUriDecode}" to "${nameAfterMojibakeFix}" resulted in replacement characters (''). Reverting to Stage 1 result: "${nameAfterUriDecode}"`);
+      nameAfterMojibakeFix = nameAfterUriDecode; 
     }
     
-    console.log(`Multer Filename - Final filename for multer: "${nameAfterMojibakeFix}"`);
-    cb(null, nameAfterMojibakeFix); // multer 使用此文件名保存临时文件
+    // console.log(`Multer Filename - Final filename for multer: "${nameAfterMojibakeFix}"`);
+    cb(null, nameAfterMojibakeFix); 
   }
 });
 
@@ -244,10 +234,8 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
       return res.status(400).json({ error: `版本 ${version} 已存在` });
     }
 
-    // req.file.filename 是 multer 的 filename 回调处理和解码后的结果
     const baseFileNameForVersioning = req.file.filename; 
-    
-    console.log(`Upload Route - Base Filename from req.file.filename (used for versioning): "${baseFileNameForVersioning}"`);
+    // console.log(`Upload Route - Base Filename from req.file.filename (used for versioning): "${baseFileNameForVersioning}"`);
 
     const lastDotIndex = baseFileNameForVersioning.lastIndexOf('.');
     let newFileName;
@@ -262,14 +250,13 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
       newFileName = `${baseFileNameForVersioning}_${version}`;
     }
     
-    console.log(`Upload Route - Constructed Original Name Without Ext: "${originalNameWithoutExt}"`);
-    console.log(`Upload Route - Constructed New Filename with Version: "${newFileName}"`);
+    // console.log(`Upload Route - Constructed Original Name Without Ext: "${originalNameWithoutExt}"`);
+    // console.log(`Upload Route - Constructed New Filename with Version: "${newFileName}"`);
 
-    // req.file.path 是 multer 保存的临时文件的完整路径，其文件名部分是 req.file.filename
     const oldPath = req.file.path; 
     const newPath = path.join(path.dirname(oldPath), newFileName);
     
-    console.log(`Upload Route - Renaming from temp path: "${oldPath}" to final versioned path: "${newPath}"`);
+    // console.log(`Upload Route - Renaming from temp path: "${oldPath}" to final versioned path: "${newPath}"`);
     fs.renameSync(oldPath, newPath);
 
     const newVersionInfo = {
@@ -277,8 +264,8 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
       releaseDate: new Date().toISOString(),
       downloadUrl: `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}/download/${projectId}/${version}`,
       releaseNotes: releaseNotes || `版本 ${version} 更新`,
-      fileName: newFileName,                 // 保存最终构建的、带版本号的完整文件名
-      originalFileName: originalNameWithoutExt // 保存从解码后的基础文件名中提取的、不带版本和扩展名的部分
+      fileName: newFileName,                 
+      originalFileName: originalNameWithoutExt 
     };
     
     versions.push(newVersionInfo);
@@ -296,7 +283,7 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
     });
     
     saveVersions(projectId, versions);
-    console.log(`Upload Route - Saved to version.json: Project "${projectId}", Version "${version}", Final Filename "${newFileName}", Original Name (no ext) "${originalNameWithoutExt}"`);
+    console.log(`项目 ${projectId} 上传新版本成功: ${version}, 文件名: ${newFileName}`);
     res.json({ message: '版本更新成功', version: newVersionInfo });
 
   } catch (err) {

@@ -95,31 +95,26 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const originalNameFromRequest = file.originalname;
-    console.log(`Multer Filename (server-ui.js) - Received originalname: "${originalNameFromRequest}"`);
+    // console.log(`Multer Filename (server-ui.js) - Received originalname: "${originalNameFromRequest}"`);
 
     let nameAfterUriDecode = originalNameFromRequest;
     try {
-      // 阶段 1: 标准URI解码 (处理 %20 等)
       nameAfterUriDecode = decodeURIComponent(originalNameFromRequest);
-      console.log(`Multer Filename (server-ui.js) - Stage 1 (decodeURIComponent) result: "${nameAfterUriDecode}"`);
+      // console.log(`Multer Filename (server-ui.js) - Stage 1 (decodeURIComponent) result: "${nameAfterUriDecode}"`);
     } catch (e) {
-      console.warn(`Multer Filename (server-ui.js) - Stage 1 (decodeURIComponent) FAILED for "${originalNameFromRequest}", Error: ${e.message}. Proceeding with original value for Stage 2.`);
-      // 如果URI解码失败，nameAfterUriDecode 保持为 originalNameFromRequest
+      // console.warn(`Multer Filename (server-ui.js) - Stage 1 (decodeURIComponent) FAILED for "${originalNameFromRequest}", Error: ${e.message}. Proceeding with original value for Stage 2.`);
     }
 
-    // 阶段 2: 尝试修复Mojibake (UTF-8字节被误认为latin1)
-    // 这一步操作的对象是 nameAfterUriDecode，即上一阶段的结果
     let nameAfterMojibakeFix = Buffer.from(nameAfterUriDecode, 'latin1').toString('utf8');
-    console.log(`Multer Filename (server-ui.js) - Stage 2 (Buffer.from(latin1).toString(utf8)) on "${nameAfterUriDecode}" result: "${nameAfterMojibakeFix}"`);
+    // console.log(`Multer Filename (server-ui.js) - Stage 2 (Buffer.from(latin1).toString(utf8)) on "${nameAfterUriDecode}" result: "${nameAfterMojibakeFix}"`);
 
-    // 启发式检查
     if (nameAfterMojibakeFix.includes('') && !nameAfterUriDecode.includes('')) {
-      console.warn(`Multer Filename (server-ui.js) - Stage 2 conversion of "${nameAfterUriDecode}" to "${nameAfterMojibakeFix}" resulted in replacement characters (''). Reverting to Stage 1 result: "${nameAfterUriDecode}"`);
-      nameAfterMojibakeFix = nameAfterUriDecode; // 如果产生乱码，则回退到阶段1的结果
+      // console.warn(`Multer Filename (server-ui.js) - Stage 2 conversion of "${nameAfterUriDecode}" to "${nameAfterMojibakeFix}" resulted in replacement characters (''). Reverting to Stage 1 result: "${nameAfterUriDecode}"`);
+      nameAfterMojibakeFix = nameAfterUriDecode; 
     }
     
-    console.log(`Multer Filename (server-ui.js) - Final filename for multer: "${nameAfterMojibakeFix}"`);
-    cb(null, nameAfterMojibakeFix); // multer 使用此文件名保存临时文件
+    // console.log(`Multer Filename (server-ui.js) - Final filename for multer: "${nameAfterMojibakeFix}"`);
+    cb(null, nameAfterMojibakeFix); 
   }
 });
 
@@ -362,10 +357,8 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
       return res.status(400).json({ error: `版本 ${version} 已存在` });
     }
 
-    // req.file.filename 是 multer 的 filename 回调处理和解码后的结果
     const baseFileNameForVersioning = req.file.filename; 
-    
-    console.log(`Upload Route (server-ui.js) - Base Filename from req.file.filename (used for versioning): "${baseFileNameForVersioning}"`);
+    // console.log(`Upload Route (server-ui.js) - Base Filename from req.file.filename (used for versioning): "${baseFileNameForVersioning}"`);
 
     const lastDotIndex = baseFileNameForVersioning.lastIndexOf('.');
     let newFileName;
@@ -380,14 +373,13 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
       newFileName = `${baseFileNameForVersioning}_${version}`;
     }
     
-    console.log(`Upload Route (server-ui.js) - Constructed Original Name Without Ext: "${originalNameWithoutExt}"`);
-    console.log(`Upload Route (server-ui.js) - Constructed New Filename with Version: "${newFileName}"`);
+    // console.log(`Upload Route (server-ui.js) - Constructed Original Name Without Ext: "${originalNameWithoutExt}"`);
+    // console.log(`Upload Route (server-ui.js) - Constructed New Filename with Version: "${newFileName}"`);
 
-    // req.file.path 是 multer 保存的临时文件的完整路径，其文件名部分是 req.file.filename
     const oldPath = req.file.path; 
     const newPath = path.join(path.dirname(oldPath), newFileName);
     
-    console.log(`Upload Route (server-ui.js) - Renaming from temp path: "${oldPath}" to final versioned path: "${newPath}"`);
+    // console.log(`Upload Route (server-ui.js) - Renaming from temp path: "${oldPath}" to final versioned path: "${newPath}"`);
     fs.renameSync(oldPath, newPath);
 
     const newVersionInfo = {
@@ -395,8 +387,8 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
       releaseDate: new Date().toISOString(),
       downloadUrl: `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}/download/${projectId}/${version}`,
       releaseNotes: releaseNotes || `版本 ${version} 更新`,
-      fileName: newFileName,                 // 保存最终构建的、带版本号的完整文件名
-      originalFileName: originalNameWithoutExt // 保存从解码后的基础文件名中提取的、不带版本和扩展名的部分
+      fileName: newFileName,                 
+      originalFileName: originalNameWithoutExt 
     };
     
     versions.push(newVersionInfo);
@@ -414,13 +406,15 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
     });
     
     saveVersions(projectId, versions);
-    console.log(`Upload Route (server-ui.js) - Saved to version.json: Project "${projectId}", Version "${version}", Final Filename "${newFileName}", Original Name (no ext) "${originalNameWithoutExt}"`);
-    serverLogs.push(`项目 ${projectId} 的新版本 ${version} 已上传: ${newFileName}`);
+    const successMsg = `项目 ${projectId} 的新版本 ${version} 已上传: ${newFileName}`;
+    console.log(successMsg); // 简化的成功日志
+    serverLogs.push(successMsg); // 控制面板日志也使用简化信息
     res.json({ message: '版本上传成功', version: newVersionInfo });
 
   } catch (err) {
-    console.error(`Upload Route (server-ui.js) - Error uploading file:`, err);
-    res.status(500).json({ error: '上传文件时发生错误' });
+    console.error(`Upload Route (server-ui.js) - Error for project ${projectId}:`, err);
+    serverLogs.push(`上传失败: ${err.message}`);
+    res.status(500).json({ error: '上传失败，服务器内部错误' });
   }
 });
 
