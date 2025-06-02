@@ -118,7 +118,35 @@ const loadVersions = (projectId) => {
     const versionFilePath = getVersionFilePath(projectId);
     if (fs.existsSync(versionFilePath)) {
       const data = fs.readFileSync(versionFilePath, 'utf8');
-      return JSON.parse(data);
+      const versions = JSON.parse(data);
+      
+      // 修复旧版本数据中的fileName和downloadUrl
+      versions.forEach(version => {
+        // 修复旧格式的fileName
+        if (version.fileName && version.fileName.startsWith('app-')) {
+          // 尝试查找实际文件
+          const uploadsDir = path.join(__dirname, 'projects', projectId, 'uploads');
+          if (fs.existsSync(uploadsDir)) {
+            const files = fs.readdirSync(uploadsDir);
+            const versionFile = files.find(file => 
+              file.includes(`_${version.version}.`) || 
+              file.includes(`-${version.version}.`)
+            );
+            if (versionFile) {
+              version.fileName = versionFile;
+            } else {
+              version.fileName = `update_${version.version}.exe`;
+            }
+          }
+        }
+        
+        // 修复downloadUrl
+        if (!version.downloadUrl.startsWith('http') || version.downloadUrl.includes('undefined')) {
+          version.downloadUrl = `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}/download/${projectId}/${version.version}`;
+        }
+      });
+      
+      return versions;
     }
     return [];
   } catch (err) {
@@ -168,23 +196,20 @@ app.get('/api/version/:projectId', (req, res) => {
     latestVersion.downloadUrl = `http://update.tangyun.lat:${config.server.port}/download/${projectId}/${latestVersion.version}`;
   }
   
-  // 如果fileName仍然是旧格式(app-version.exe)，更新为正确格式
-  if (latestVersion.fileName && latestVersion.fileName.startsWith('app-')) {
-    // 从版本库路径查找实际文件名
-    const uploadsDir = path.join(__dirname, 'projects', projectId, 'uploads');
-    if (fs.existsSync(uploadsDir)) {
-      const files = fs.readdirSync(uploadsDir);
-      // 查找匹配此版本的文件，支持下划线或连字符连接
-      const versionFile = files.find(file => 
-        file.includes(`_${latestVersion.version}.`) || 
-        file.includes(`-${latestVersion.version}.`)
-      );
-      if (versionFile) {
-        latestVersion.fileName = versionFile;
-      } else {
-        // 如果找不到匹配的文件，使用默认格式
-        latestVersion.fileName = `update_${latestVersion.version}.exe`;
-      }
+  // 查找实际文件名，无论fileName是什么格式
+  const uploadsDir = path.join(__dirname, 'projects', projectId, 'uploads');
+  if (fs.existsSync(uploadsDir)) {
+    const files = fs.readdirSync(uploadsDir);
+    // 查找匹配此版本的文件，支持下划线或连字符连接
+    const versionFile = files.find(file => 
+      file.includes(`_${latestVersion.version}.`) || 
+      file.includes(`-${latestVersion.version}.`)
+    );
+    if (versionFile) {
+      latestVersion.fileName = versionFile;
+    } else if (latestVersion.fileName && latestVersion.fileName.startsWith('app-')) {
+      // 如果找不到匹配的文件，但fileName是旧格式，使用默认格式
+      latestVersion.fileName = `update_${latestVersion.version}.exe`;
     }
   }
   
@@ -258,6 +283,7 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
     });
     
     saveVersions(projectId, versions);
+    console.log(`项目 ${projectId} 上传新版本: ${version}, 文件名: ${newFileName}`);
     res.json({ message: '版本更新成功', version: newVersionInfo });
 
   } catch (err) {
