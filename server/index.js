@@ -211,8 +211,19 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
 
     // 获取原始文件名并添加版本号
     const originalFileName = req.file.originalname;
-    const fileNameWithoutExt = originalFileName.replace(/\.exe$/i, '');
-    const newFileName = `${fileNameWithoutExt}-${version}.exe`;
+    // 在文件名和扩展名之间插入版本号
+    const lastDotIndex = originalFileName.lastIndexOf('.');
+    let newFileName;
+    
+    if (lastDotIndex !== -1) {
+      // 有扩展名的情况
+      const nameWithoutExt = originalFileName.substring(0, lastDotIndex);
+      const extension = originalFileName.substring(lastDotIndex);
+      newFileName = `${nameWithoutExt}-${version}${extension}`;
+    } else {
+      // 没有扩展名的情况
+      newFileName = `${originalFileName}-${version}`;
+    }
     
     // 重命名文件
     const oldPath = req.file.path;
