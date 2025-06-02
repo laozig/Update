@@ -94,8 +94,10 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
+    // 处理文件名编码
+    const decodedFilename = Buffer.from(file.originalname, 'latin1').toString('utf8');
     // 先保存为原始文件名，后面再重命名
-    cb(null, file.originalname);
+    cb(null, decodedFilename);
   }
 });
 
