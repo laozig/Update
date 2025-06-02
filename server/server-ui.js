@@ -94,10 +94,23 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
-    // 处理文件名编码
-    const decodedFilename = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    // 先保存为原始文件名，后面再重命名
-    cb(null, decodedFilename);
+    let decodedFilename = file.originalname;
+    try {
+      // 优先尝试 decodeURIComponent，因为浏览器通常会用URI编码发送特殊字符
+      decodedFilename = decodeURIComponent(file.originalname);
+      console.log(`Multer Filename (server-ui.js) - decodeURIComponent success: ${decodedFilename}`);
+    } catch (e) {
+      console.warn(`Multer Filename (server-ui.js) - decodeURIComponent FAILED for: ${file.originalname}, Error: ${e.message}. Trying latin1->utf8 fallback.`);
+      try {
+        // 如果 decodeURIComponent 失败，尝试 latin1 -> utf8 作为备选方案
+        decodedFilename = Buffer.from(file.originalname, 'latin1').toString('utf8');
+        console.log(`Multer Filename (server-ui.js) - latin1->utf8 success: ${decodedFilename}`);
+      } catch (e2) {
+        console.error(`Multer Filename (server-ui.js) - latin1->utf8 FAILED for: ${file.originalname}, Error: ${e2.message}. Using originalname as is.`);
+        // 如果两种解码都失败，保留原始名称
+      }
+    }
+    cb(null, decodedFilename); // multer 使用此文件名保存临时文件
   }
 });
 
@@ -123,11 +136,36 @@ const loadVersions = (projectId) => {
     const versionFilePath = getVersionFilePath(projectId);
     if (fs.existsSync(versionFilePath)) {
       const data = fs.readFileSync(versionFilePath, 'utf8');
-      return JSON.parse(data);
+      const versions = JSON.parse(data);
+      
+      versions.forEach(version => {
+        // 修复旧数据中可能不完整的downloadUrl
+        if (!version.downloadUrl.startsWith('http') || version.downloadUrl.includes('undefined')) {
+          version.downloadUrl = `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}/download/${projectId}/${version.version}`;
+        }
+        
+        // 向后兼容：如果旧数据没有 originalFileName，尝试从当前 fileName 推断
+        if (!version.originalFileName && version.fileName) {
+            const versionSuffix = `_${version.version}`;
+            const indexOfVersionSuffix = version.fileName.lastIndexOf(versionSuffix);
+            
+            if (indexOfVersionSuffix !== -1) {
+                version.originalFileName = version.fileName.substring(0, indexOfVersionSuffix);
+            } else {
+                 console.warn(`LoadVersions (server-ui.js) - Could not infer originalFileName for ${projectId} version ${version.version} from fileName ${version.fileName}. Using default.`);
+                 version.originalFileName = "update"; 
+            }
+        } else if (!version.originalFileName) {
+            console.warn(`LoadVersions (server-ui.js) - originalFileName missing for ${projectId} version ${version.version}. Using default.`);
+            version.originalFileName = "update"; 
+        }
+      });
+            
+      return versions;
     }
     return [];
   } catch (err) {
-    console.error(`加载项目 ${projectId} 的版本信息失败:`, err);
+    console.error(`LoadVersions (server-ui.js) - Error loading versions for project ${projectId}:`, err);
     return [];
   }
 };
@@ -292,48 +330,6 @@ app.get('/api/versions/:projectId', (req, res) => {
   const { projectId } = req.params;
   const versions = loadVersions(projectId);
   
-  // 修复可能的文件名乱码
-  try {
-    const uploadsDir = path.join(__dirname, 'projects', projectId, 'uploads');
-    if (fs.existsSync(uploadsDir)) {
-      const files = fs.readdirSync(uploadsDir);
-      
-      // 遍历所有版本，修复文件名
-      versions.forEach(version => {
-        // 查找匹配此版本的文件
-        const versionFile = files.find(file => file.includes(`_${version.version}.`));
-        if (versionFile) {
-          version.fileName = versionFile;
-          // 更新originalFileName
-          const dotIndex = versionFile.lastIndexOf('.');
-          const underscoreIndex = versionFile.lastIndexOf('_');
-          if (dotIndex !== -1 && underscoreIndex !== -1 && underscoreIndex < dotIndex) {
-            version.originalFileName = versionFile.substring(0, underscoreIndex);
-          }
-        }
-        
-        // 通用的乱码检测和修复
-        if (version.fileName && /å|æ|ç|è|é|ê|ë|ì|í|î|ï|ð|ñ|ò|ó|ô|õ|ö|÷|ø|ù|ú|û|ü|ý|þ|ÿ/.test(version.fileName)) {
-          console.log(`检测到可能的文件名乱码: ${version.fileName}`);
-          
-          // 尝试从文件系统获取正确的文件名
-          const versionFile = files.find(file => file.endsWith(`_${version.version}.exe`));
-          if (versionFile) {
-            version.fileName = versionFile;
-            // 更新originalFileName
-            const dotIndex = versionFile.lastIndexOf('.');
-            const underscoreIndex = versionFile.lastIndexOf('_');
-            if (dotIndex !== -1 && underscoreIndex !== -1 && underscoreIndex < dotIndex) {
-              version.originalFileName = versionFile.substring(0, underscoreIndex);
-            }
-          }
-        }
-      });
-    }
-  } catch (err) {
-    console.error('修复文件名编码时出错:', err);
-  }
-  
   res.json({ versions });
 });
 
@@ -357,28 +353,32 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
       return res.status(400).json({ error: `版本 ${version} 已存在` });
     }
 
-    // 获取原始文件名并添加版本号
-    const originalFileName = req.file.originalname;
-    // 在文件名和扩展名之间插入版本号，使用下划线连接
-    const lastDotIndex = originalFileName.lastIndexOf('.');
+    // req.file.filename 是 multer 的 filename 回调处理和解码后的结果
+    const baseFileNameForVersioning = req.file.filename; 
+    
+    console.log(`Upload Route (server-ui.js) - Base Filename from req.file.filename (used for versioning): "${baseFileNameForVersioning}"`);
+
+    const lastDotIndex = baseFileNameForVersioning.lastIndexOf('.');
     let newFileName;
     let originalNameWithoutExt;
     
     if (lastDotIndex !== -1) {
-      // 有扩展名的情况
-      originalNameWithoutExt = originalFileName.substring(0, lastDotIndex);
-      const extension = originalFileName.substring(lastDotIndex);
+      originalNameWithoutExt = baseFileNameForVersioning.substring(0, lastDotIndex);
+      const extension = baseFileNameForVersioning.substring(lastDotIndex);
       newFileName = `${originalNameWithoutExt}_${version}${extension}`;
     } else {
-      // 没有扩展名的情况
-      originalNameWithoutExt = originalFileName;
-      newFileName = `${originalFileName}_${version}`;
+      originalNameWithoutExt = baseFileNameForVersioning;
+      newFileName = `${baseFileNameForVersioning}_${version}`;
     }
     
-    // 重命名文件
-    const oldPath = req.file.path;
+    console.log(`Upload Route (server-ui.js) - Constructed Original Name Without Ext: "${originalNameWithoutExt}"`);
+    console.log(`Upload Route (server-ui.js) - Constructed New Filename with Version: "${newFileName}"`);
+
+    // req.file.path 是 multer 保存的临时文件的完整路径，其文件名部分是 req.file.filename
+    const oldPath = req.file.path; 
     const newPath = path.join(path.dirname(oldPath), newFileName);
     
+    console.log(`Upload Route (server-ui.js) - Renaming from temp path: "${oldPath}" to final versioned path: "${newPath}"`);
     fs.renameSync(oldPath, newPath);
 
     const newVersionInfo = {
@@ -386,8 +386,8 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
       releaseDate: new Date().toISOString(),
       downloadUrl: `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}/download/${projectId}/${version}`,
       releaseNotes: releaseNotes || `版本 ${version} 更新`,
-      fileName: newFileName,
-      originalFileName: originalNameWithoutExt
+      fileName: newFileName,                 // 保存最终构建的、带版本号的完整文件名
+      originalFileName: originalNameWithoutExt // 保存从解码后的基础文件名中提取的、不带版本和扩展名的部分
     };
     
     versions.push(newVersionInfo);
@@ -405,11 +405,12 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
     });
     
     saveVersions(projectId, versions);
+    console.log(`Upload Route (server-ui.js) - Saved to version.json: Project "${projectId}", Version "${version}", Final Filename "${newFileName}", Original Name (no ext) "${originalNameWithoutExt}"`);
     serverLogs.push(`项目 ${projectId} 的新版本 ${version} 已上传: ${newFileName}`);
     res.json({ message: '版本上传成功', version: newVersionInfo });
 
   } catch (err) {
-    console.error('上传失败:', err);
+    console.error(`Upload Route (server-ui.js) - Error for project ${projectId}:`, err);
     serverLogs.push(`上传失败: ${err.message}`);
     res.status(500).json({ error: '上传失败，服务器内部错误' });
   }
