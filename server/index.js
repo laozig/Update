@@ -64,8 +64,8 @@ const apiKeyAuth = (req, res, next) => {
 app.use(cors({
   origin: function(origin, callback) {
     const allowedOrigins = [
-      `http://${config.server.serverIp || '103.97.179.230'}`,
-      `https://${config.server.serverIp || '103.97.179.230'}`,
+      `http://${config.server.serverIp || 'update.tangyun.lat'}`,
+      `https://${config.server.serverIp || 'update.tangyun.lat'}`,
       'http://localhost:8080',
       'http://localhost:3000'
     ];
