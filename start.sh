@@ -53,9 +53,19 @@ EOL
 echo "重启Nginx..."
 systemctl restart nginx
 
-# 4. 启动Node.js服务
-echo "启动Node.js服务..."
+# 4. 安装Node.js依赖
+echo "安装Node.js依赖..."
 cd /opt/Update
+if [ ! -d "node_modules" ] || [ ! -f "package-lock.json" ]; then
+    echo "首次安装依赖..."
+    npm install --production
+else
+    echo "检查依赖更新..."
+    npm install --production --no-audit
+fi
+
+# 5. 启动Node.js服务
+echo "启动Node.js服务..."
 
 # 停止已存在的进程
 pkill -f "node server/server-ui.js"
@@ -69,10 +79,10 @@ else
     nohup node server/server-ui.js >> server.log 2>&1 &
 fi
 
-# 5. 等待服务启动
+# 6. 等待服务启动
 sleep 3
 
-# 6. 检查服务状态
+# 7. 检查服务状态
 echo "检查服务状态..."
 if netstat -tlpn | grep :8080 > /dev/null; then
     echo "✅ 服务启动成功！"
