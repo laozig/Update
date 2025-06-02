@@ -110,24 +110,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 修改index.html以注入服务器IP
-app.get('/', (req, res) => {
-  const indexPath = path.join(__dirname, 'public', 'index.html');
-  fs.readFile(indexPath, 'utf8', (err, data) => {
-    if (err) {
-      console.error('读取index.html失败:', err);
-      return res.status(500).send('服务器错误');
-    }
-    
-    // 注入服务器IP地址
-    const serverIp = config.server.serverIp || '103.97.179.230';
-    const modifiedHtml = data.replace('</head>', 
-      `<script>window.serverIp = "${serverIp}";</script></head>`);
-    
-    res.send(modifiedHtml);
-  });
-});
-
 // 版本信息管理
 const getVersionFilePath = (projectId) => {
   return path.join(__dirname, 'projects', projectId, 'version.json');

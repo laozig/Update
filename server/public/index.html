@@ -157,9 +157,9 @@
               </div>
               <div class="col-md-6">
                 <p class="card-text"><i class="bi bi-code-slash me-2"></i> 版本API:</p>
-                <code class="user-select-all d-block bg-light p-2 rounded">http://<span id="apiIp">103.97.179.230</span>:3000/api/version/:projectId</code>
+                <code class="user-select-all d-block bg-light p-2 rounded">http://103.97.179.230:3000/api/version/:projectId</code>
                 <p class="card-text mt-3"><i class="bi bi-download me-2"></i> 下载API:</p>
-                <code class="user-select-all d-block bg-light p-2 rounded">http://<span id="downloadIp">103.97.179.230</span>:3000/download/:projectId/latest</code>
+                <code class="user-select-all d-block bg-light p-2 rounded">http://103.97.179.230:3000/download/:projectId/latest</code>
               </div>
             </div>
           </div>
@@ -614,17 +614,6 @@
       fetchProjects();
       checkServerStatus();
       fetchLogs();
-      
-      // 设置服务器IP地址
-      const serverIp = document.getElementById('serverIp');
-      const apiIp = document.getElementById('apiIp');
-      const downloadIp = document.getElementById('downloadIp');
-      
-      if (window.serverIp) {
-        serverIp.textContent = window.serverIp;
-        apiIp.textContent = window.serverIp;
-        downloadIp.textContent = window.serverIp;
-      }
       
       // 定时刷新
       setInterval(checkServerStatus, 5000);
