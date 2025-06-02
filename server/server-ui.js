@@ -312,11 +312,21 @@ app.get('/api/versions/:projectId', (req, res) => {
           }
         }
         
-        // 如果文件名仍然包含乱码，使用硬编码的正确文件名
-        if (version.fileName && version.fileName.includes('å æ²_ææç_ç¦ç°')) {
-          const correctBaseName = '加沙_战损版_福田';
-          version.fileName = `${correctBaseName}_${version.version}.exe`;
-          version.originalFileName = correctBaseName;
+        // 通用的乱码检测和修复
+        if (version.fileName && /å|æ|ç|è|é|ê|ë|ì|í|î|ï|ð|ñ|ò|ó|ô|õ|ö|÷|ø|ù|ú|û|ü|ý|þ|ÿ/.test(version.fileName)) {
+          console.log(`检测到可能的文件名乱码: ${version.fileName}`);
+          
+          // 尝试从文件系统获取正确的文件名
+          const versionFile = files.find(file => file.endsWith(`_${version.version}.exe`));
+          if (versionFile) {
+            version.fileName = versionFile;
+            // 更新originalFileName
+            const dotIndex = versionFile.lastIndexOf('.');
+            const underscoreIndex = versionFile.lastIndexOf('_');
+            if (dotIndex !== -1 && underscoreIndex !== -1 && underscoreIndex < dotIndex) {
+              version.originalFileName = versionFile.substring(0, underscoreIndex);
+            }
+          }
         }
       });
     }
