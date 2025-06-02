@@ -52,6 +52,22 @@ fi
 
 # 4. 配置Nginx
 echo "配置Nginx..."
+
+# 备份默认的Nginx配置（如果存在）
+echo "备份默认的Nginx配置..."
+if [ -f "/etc/nginx/conf.d/default.conf" ] && [ ! -f "/etc/nginx/conf.d/default.conf.bak" ]; then
+    cp /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.bak
+fi
+
+if [ -f "/etc/nginx/sites-enabled/default" ] && [ ! -f "/etc/nginx/sites-enabled/default.bak" ]; then
+    cp /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/default.bak
+fi
+
+# 删除默认的nginx配置文件（如果存在）
+echo "删除默认的Nginx配置..."
+rm -f /etc/nginx/sites-enabled/default
+rm -f /etc/nginx/conf.d/default.conf
+
 cat > /etc/nginx/conf.d/update-server.conf << 'EOL'
 server {
     listen 80;

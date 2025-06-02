@@ -1,44 +1,48 @@
 #!/bin/bash
 
-echo "停止服务..."
+echo "开始停止服务..."
 
 # 1. 停止Node.js服务
 echo "停止Node.js服务..."
+pkill -f "node server/server-ui.js" || true
+pkill -f "node server/index.js" || true
+
+# 如果安装了pm2，使用pm2停止服务
 if command -v pm2 &> /dev/null; then
     echo "使用PM2停止服务..."
-    pm2 delete update-ui 2>/dev/null || true
     pm2 delete update-api 2>/dev/null || true
-    pm2 delete update-server 2>/dev/null || true
-else
-    echo "使用pkill停止服务..."
-    pkill -f "node server/server-ui.js" || true
-    pkill -f "node server/index.js" || true
+    pm2 delete update-ui 2>/dev/null || true
 fi
 
-# 2. 停止Nginx
-echo "停止Nginx..."
+# 2. 停止Nginx服务
+echo "停止Nginx服务..."
 systemctl stop nginx
 
-# 3. 检查服务状态
-echo "检查服务状态..."
-if ! netstat -tlpn | grep :8080 > /dev/null; then
-    echo "✅ 控制面板已停止"
-else
-    echo "❌ 控制面板停止失败，尝试强制终止..."
-    pkill -9 -f "node server/server-ui.js" || true
+# 3. 删除Nginx配置
+echo "删除Nginx配置..."
+rm -f /etc/nginx/conf.d/update-server.conf
+rm -f /etc/nginx/sites-enabled/update-server
+
+# 4. 恢复默认Nginx配置（如果需要）
+if [ -f "/etc/nginx/conf.d/default.conf.bak" ]; then
+    echo "恢复默认Nginx配置..."
+    cp /etc/nginx/conf.d/default.conf.bak /etc/nginx/conf.d/default.conf
 fi
 
-if ! netstat -tlpn | grep :3000 > /dev/null; then
-    echo "✅ 更新服务已停止"
-else
-    echo "❌ 更新服务停止失败，尝试强制终止..."
-    pkill -9 -f "node server/index.js" || true
+if [ -f "/etc/nginx/sites-enabled/default.bak" ]; then
+    echo "恢复默认站点配置..."
+    cp /etc/nginx/sites-enabled/default.bak /etc/nginx/sites-enabled/default
 fi
 
-if ! systemctl is-active --quiet nginx; then
-    echo "✅ Nginx已停止"
-else
-    echo "❌ Nginx停止失败，请手动检查"
-fi
+# 5. 重启Nginx服务（使用默认配置）
+echo "重启Nginx服务..."
+systemctl start nginx
 
-echo "所有服务已停止" 
+# 6. 清理进程
+echo "清理残留进程..."
+for pid in $(ps aux | grep -E 'node.*server/(index|server-ui).js' | grep -v grep | awk '{print $2}'); do
+    echo "结束进程 $pid..."
+    kill -9 $pid 2>/dev/null || true
+done
+
+echo "✅ 服务已停止" 
