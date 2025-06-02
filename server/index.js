@@ -161,10 +161,29 @@ app.get('/api/version/:projectId', (req, res) => {
     return res.status(404).json({ error: '暂无版本信息' });
   }
   
-  // 确保返回的downloadUrl包含完整域名
+  // 确保返回的downloadUrl包含完整域名和正确的fileName
   const latestVersion = {...versions[0]};
+  
+  // 修复downloadUrl中的域名
   if (!latestVersion.downloadUrl.startsWith('http') || latestVersion.downloadUrl.includes('undefined')) {
     latestVersion.downloadUrl = `http://update.tangyun.lat:${config.server.port}/download/${projectId}/${latestVersion.version}`;
+  }
+  
+  // 如果fileName仍然是旧格式(app-version.exe)，更新为正确格式
+  if (latestVersion.fileName && latestVersion.fileName.startsWith('app-')) {
+    // 从版本库路径查找实际文件名
+    const uploadsDir = path.join(__dirname, 'projects', projectId, 'uploads');
+    if (fs.existsSync(uploadsDir)) {
+      const files = fs.readdirSync(uploadsDir);
+      // 查找匹配此版本的文件
+      const versionFile = files.find(file => file.includes(`-${latestVersion.version}.exe`));
+      if (versionFile) {
+        latestVersion.fileName = versionFile;
+      } else {
+        // 如果找不到匹配的文件，使用默认格式
+        latestVersion.fileName = `update-${latestVersion.version}.exe`;
+      }
+    }
   }
   
   res.json(latestVersion);
@@ -233,7 +252,19 @@ app.get('/download/:projectId/latest', (req, res) => {
   }
   
   const latestVersion = versions[0];
-  const filePath = path.join(__dirname, 'projects', projectId, 'uploads', latestVersion.fileName);
+  const uploadsDir = path.join(__dirname, 'projects', projectId, 'uploads');
+  
+  // 先尝试使用fileName直接查找
+  let filePath = path.join(uploadsDir, latestVersion.fileName);
+  
+  // 如果找不到文件，尝试查找匹配版本号的文件
+  if (!fs.existsSync(filePath)) {
+    const files = fs.readdirSync(uploadsDir);
+    const versionFile = files.find(file => file.includes(`-${latestVersion.version}.exe`));
+    if (versionFile) {
+      filePath = path.join(uploadsDir, versionFile);
+    }
+  }
   
   if (fs.existsSync(filePath)) {
     res.download(filePath);
@@ -252,7 +283,19 @@ app.get('/download/:projectId/:version', (req, res) => {
     return res.status(404).json({ error: `版本 ${version} 不存在` });
   }
 
-  const filePath = path.join(__dirname, 'projects', projectId, 'uploads', versionInfo.fileName);
+  const uploadsDir = path.join(__dirname, 'projects', projectId, 'uploads');
+  
+  // 先尝试使用fileName直接查找
+  let filePath = path.join(uploadsDir, versionInfo.fileName);
+  
+  // 如果找不到文件，尝试查找匹配版本号的文件
+  if (!fs.existsSync(filePath)) {
+    const files = fs.readdirSync(uploadsDir);
+    const versionFile = files.find(file => file.includes(`-${version}.exe`));
+    if (versionFile) {
+      filePath = path.join(uploadsDir, versionFile);
+    }
+  }
   
   if (fs.existsSync(filePath)) {
     res.download(filePath);
