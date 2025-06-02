@@ -97,7 +97,8 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const version = req.body.version || 'unknown';
-    cb(null, `app-${version}.exe`);
+    const originalName = file.originalname.replace(/\.exe$/, '');
+    cb(null, `${originalName}-${version}.exe`);
   }
 });
 
@@ -158,7 +159,14 @@ app.get('/api/version/:projectId', (req, res) => {
   if (versions.length === 0) {
     return res.status(404).json({ error: '暂无版本信息' });
   }
-  res.json(versions[0]);
+  
+  // 确保返回的downloadUrl包含完整域名
+  const latestVersion = {...versions[0]};
+  if (!latestVersion.downloadUrl.startsWith('http')) {
+    latestVersion.downloadUrl = `http://${config.server.serverIp}:${config.server.port}${latestVersion.downloadUrl}`;
+  }
+  
+  res.json(latestVersion);
 });
 
 // 上传新版本 (受API密钥保护)
@@ -185,9 +193,9 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
     const newVersionInfo = {
       version,
       releaseDate: new Date().toISOString(),
-      downloadUrl: `/download/${projectId}/${version}`,
+      downloadUrl: `http://${config.server.serverIp}:${config.server.port}/download/${projectId}/${version}`,
       releaseNotes: releaseNotes || `版本 ${version} 更新`,
-      fileName: `app-${version}.exe`
+      fileName: req.file.originalname.replace(/\.exe$/, '') + `-${version}.exe`
     };
     
     versions.push(newVersionInfo);
