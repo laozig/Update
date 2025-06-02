@@ -1,5 +1,25 @@
 # 多项目EXE程序自动更新系统
 
+## 仓库信息
+- **仓库地址**: https://github.com/laozig/Update.git
+- **克隆仓库**: `git clone https://github.com/laozig/Update.git`
+- **拉取更新**: `git pull origin main`
+
+## 快速部署
+```bash
+# 克隆仓库
+git clone https://github.com/laozig/Update.git
+
+# 进入目录
+cd Update
+
+# 设置脚本权限
+chmod +x start.sh stop.sh
+
+# 启动服务
+./start.sh
+```
+
 ## 系统说明
 这是一个支持多项目的EXE程序自动更新后端系统，支持多项目管理、版本控制和自动更新功能。系统采用Node.js开发，通过Nginx反向代理提供服务，支持多个项目的独立版本管理和更新。
 
