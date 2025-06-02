@@ -1,122 +1,304 @@
-# Node.js Update Server
+# Node.js 多项目自动更新服务器
 
 [![node-lts](https://img.shields.io/node/v-lts/express.svg?style=flat-square)](https://nodejs.org/en/about/releases/)
 [![GitHub last commit](https://img.shields.io/github/last-commit/laozig/Update.svg?style=flat-square)](https://github.com/laozig/Update/commits/main)
 
 **[English](README.en.md) | 中文**
 
-一个基于 Node.js 和 Express.js 的简单通用应用程序自动更新服务器，带有一个图形化的Web控制面板，用于管理更新、项目和版本。
+一个基于 Node.js 和 Express.js 的简单、通用、支持多项目的应用程序自动更新服务器，配备图形化Web控制面板，用于管理项目、版本、上传更新文件及监控服务。
 
-## 特性
+## 1. 仓库与代码管理
 
-*   **多项目支持**: 通过项目ID和API密钥隔离管理多个不同的应用程序更新。
-*   **版本控制**: 轻松上传和管理应用程序的不同版本。
-*   **Web 控制面板**: 图形化界面，用于启动/停止更新服务、管理项目、上传版本、查看API密钥和监控基本日志。
-*   **API 驱动**: 清晰的API端点，用于客户端检查更新、下载文件和（受保护地）上传新版本。
-*   **易于部署**: 可以作为独立的 Node.js 应用运行，推荐使用 PM2 进行生产环境管理。
-*   **自定义配置**: 通过 `server/config.json` 进行端口、服务器IP/域名和项目特定设置的配置。
-*   **文件名编码处理**: 经过优化的文件名处理逻辑，以支持包括中文在内的非ASCII字符文件名。
-
-## 快速开始
-
-1.  **克隆仓库**:
+*   **仓库地址**: `https://github.com/laozig/Update.git`
+*   **克隆仓库**: 
     ```bash
     git clone https://github.com/laozig/Update.git
+    ```
+*   **进入项目目录**:
+    ```bash
     cd Update
     ```
+*   **拉取最新更新**:
+    ```bash
+    git pull origin main
+    ```
 
-2.  **安装依赖**:
+## 2. 功能特性
+
+*   **多项目支持**: 通过项目ID和API密钥隔离管理多个不同的应用程序更新。
+*   **版本控制**: 轻松上传和管理应用程序的不同版本，支持版本说明。
+*   **Web 控制面板**: 图形化界面，用于：
+    *   启动/停止核心API更新服务。
+    *   实时查看服务状态和日志。
+    *   管理项目（增删改查）。
+    *   为指定项目上传新版本文件。
+    *   查看和重置项目API密钥。
+*   **API 驱动**: 清晰的API端点，供客户端应用程序检查更新、下载文件；以及供（受保护的）管理工具上传新版本。
+*   **易于部署**: 可以作为独立的 Node.js 应用运行。推荐使用 PM2 进行生产环境管理以实现进程守护和日志管理。
+*   **自定义配置**: 通过 `server/config.json` 灵活配置服务器端口、IP/域名、管理员凭据及各个项目的具体设置。
+*   **文件名编码处理**: 优化了文件名处理逻辑，以正确支持包括中文在内的非ASCII字符文件名。
+*   **日志管理**: 控制面板服务会将操作日志记录到 `server.log`，并提供日志查看功能。主API服务日志输出到控制台。
+
+## 3. 系统架构与组件
+
+*   **核心API服务 (`server/index.js`)**: 处理客户端的版本检查 (`/api/version/:projectId`)、文件下载 (`/download/...`) 和（经认证的）版本上传 (`/api/upload/:projectId`) 请求。默认监听端口 `3000`。
+*   **Web控制面板服务 (`server/server-ui.js`)**: 提供基于Web的管理界面。负责项目管理、版本上传（通过调用核心API或内部逻辑）、API服务启停控制、日志查看等。默认监听端口 `8080`。
+*   **配置文件 (`server/config.json`)**: 存储系统级配置（如服务端口、管理员账户）和所有项目的详细信息（ID, 名称, API密钥, 图标等）。
+*   **项目数据存储 (`server/projects/`)**: 每个项目在此目录下拥有一个以其 `projectId` 命名的子目录，包含：
+    *   `version.json`: 该项目的版本历史和元数据。
+    *   `uploads/`: 该项目上传的实际更新文件。
+
+## 4. 部署指南
+
+### 4.1. 服务器环境准备
+*   **操作系统**: 推荐使用 Linux (如 Ubuntu, CentOS, Debian)。
+*   **Node.js**: 版本 14.x 或更高版本。
+    ```bash
+    # 检查Node.js版本
+    node -v
+    npm -v
+    ```
+    如果未安装，可以通过 `nvm` (Node Version Manager) 或系统包管理器安装。
+*   **Git**: 用于克隆代码。
+
+### 4.2. 部署步骤
+
+1.  **克隆或更新代码**:
+    ```bash
+    # 如果首次部署
+    git clone https://github.com/laozig/Update.git
+    cd Update
+    # 如果是更新现有部署
+    # cd /path/to/your/Update_directory
+    # git pull origin main
+    ```
+
+2.  **安装依赖**: 在项目根目录下执行：
     ```bash
     npm install
     ```
+    或者，如果项目包含 `package-lock.json` 或 `yarn.lock` 并希望精确复现依赖，可使用 `npm ci` 或 `yarn install --frozen-lockfile`。
 
-3.  **配置服务器**:
-    *   复制或重命名 `server/config.example.json` 为 `server/config.json` (如果 `config.json` 尚不存在)。
-    *   编辑 `server/config.json`，至少设置 `server.serverIp` 为您的服务器公网IP地址或域名，并修改 `server.adminPassword`。
+3.  **配置服务器 (`server/config.json`)**:
+    *   如果 `server/config.json` 不存在，复制 `server/config.example.json` 为 `server/config.json`。
+    *   **重要**: 打开并编辑 `server/config.json`：
+        *   设置 `server.serverIp` 为您服务器的公网IP地址或指向该服务器的域名。这是客户端构建下载链接所必需的。
+        *   修改 `server.adminUsername` 和 `server.adminPassword` 为安全的管理员凭据。
+        *   按需配置 `server.port` (API服务端口) 和 `server.adminPort` (控制面板端口)。
+        *   在 `projects` 数组中定义您的项目。每个项目应有唯一的 `id` 和强 `apiKey`。
         ```json
+        // server/config.json 示例片段
         {
           "projects": [
             {
-              "id": "project1_test",
-              "name": "My Test Project",
-              "description": "This is a sample project for testing purposes.",
-              "apiKey": "your-secure-api-key-for-project1_test", // 生成或设置一个安全的API密钥
+              "id": "myFirstApp",
+              "name": "My First Application",
+              "description": "An awesome application.",
+              "apiKey": "generated-secure-api-key-for-myFirstApp",
               "icon": "icons/default.png"
             }
+            // 可以添加更多项目...
           ],
           "server": {
-            "serverIp": "YOUR_SERVER_IP_OR_DOMAIN", // 例如 "192.168.1.100" 或 "update.example.com"
+            "serverIp": "YOUR_SERVER_IP_OR_DOMAIN", 
             "port": 3000,
             "adminPort": 8080,
             "adminUsername": "admin",
-            "adminPassword": "your-strong-password" // 请务必修改此密码!
+            "adminPassword": "ChangeThisStrongPassword!"
           }
         }
         ```
 
-4.  **启动服务**:
-    *   **API 服务**:
+4.  **目录权限** (如果需要):
+    确保运行Node.js服务的用户对 `server/projects/` 目录有写权限，以便能自动创建项目子目录、`version.json` 和 `uploads` 文件夹。
+
+### 4.3. 启动服务
+
+您需要启动两个Node.js进程：API服务和控制面板服务。
+
+*   **直接使用 Node (开发或简单测试)**: (需要打开两个终端)
+    ```bash
+    # 终端1: 启动 API 服务
+    node server/index.js
+    ```
+    ```bash
+    # 终端2: 启动控制面板服务
+    node server/server-ui.js
+    ```
+*   **使用 `package.json` 脚本 (如果已定义)**:
+    查看 `package.json` 中的 `scripts` 部分，可能有类似 `start:api` 和 `start:ui` 的命令。
+    ```bash
+    npm run start-api 
+    npm run start-ui
+    ```
+*   **使用 PM2 (生产环境推荐)**:
+    PM2 可以管理Node.js进程，提供日志管理、自动重启等功能。
+    1.  全局安装 PM2 (如果尚未安装):
         ```bash
-        node server/index.js
+        npm install pm2 -g
         ```
-    *   **控制面板服务** (在另一个终端中):
+    2.  使用PM2启动服务:
         ```bash
-        node server/server-ui.js
+        pm2 start server/index.js --name update-api-server
+        pm2 start server/server-ui.js --name update-control-panel
         ```
-    *   生产环境推荐使用 PM2 管理 (详见部署说明)。
+    3.  设置PM2开机自启 (按提示操作):
+        ```bash
+        pm2 startup
+        ```
+    4.  保存当前PM2进程列表:
+        ```bash
+        pm2 save
+        ```
+    5.  查看PM2管理的进程: `pm2 list`
+    6.  查看日志: `pm2 logs update-api-server` 或 `pm2 logs update-control-panel`
 
-5.  **访问控制面板**: 打开浏览器并访问 `http://localhost:8080` (如果服务器在本地运行) 或 `http://YOUR_SERVER_IP_OR_DOMAIN:8080`。使用您在 `config.json` 中设置的 `adminUsername` 和 `adminPassword` 登录。
+### 4.4. 停止服务
 
-## 主要API端点
+*   **直接使用 Node**: 在对应的终端按 `Ctrl+C`。
+*   **使用 PM2**:
+    ```bash
+    pm2 stop update-api-server
+    pm2 stop update-control-panel
+    # 或者 pm2 delete update-api-server update-control-panel 从PM2列表移除
+    ```
 
-*   `GET /api/version/:projectId`: 获取指定项目的最新版本信息。
-*   `GET /download/:projectId/latest`: 下载指定项目的最新版本文件。
-*   `GET /download/:projectId/:version`: 下载指定项目的特定版本文件。
-*   `POST /api/upload/:projectId`: (需要 `x-api-key` 认证) 上传新版本文件。
-*   `GET /api/projects`: 获取公开的项目列表（不含API密钥）。
+### 4.5. 访问控制面板
 
-## 文档与深入了解
+*   在浏览器中打开: `http://<YOUR_SERVER_IP_OR_DOMAIN>:<adminPort>` (例如 `http://yourserver.com:8080`)。
+*   使用您在 `server/config.json` 中设置的 `adminUsername` 和 `adminPassword` 登录。
 
-*   **[部署说明 (Deploy Instructions)](./deploy-instructions.md)**: 详细的服务器部署指南，包括使用 PM2、防火墙配置和反向代理建议。
-*   **[多项目设计 (Multi-Project Design)](./multi-project-design.md)**: 关于服务器如何支持和管理多个项目的技术设计和实现细节。
+## 5. 主要API端点
 
-## 目录结构
+(假设 API 服务运行在 `http://<serverIp>:<port>`)
+
+*   `GET /api/version/:projectId`:
+    *   描述: 获取指定项目的最新版本信息。
+    *   示例: `http://yourserver.com:3000/api/version/myFirstApp`
+*   `GET /download/:projectId/latest`:
+    *   描述: 下载指定项目的最新版本文件。
+*   `GET /download/:projectId/:version`:
+    *   描述: 下载指定项目的特定版本文件。
+*   `POST /api/upload/:projectId`:
+    *   描述: 上传新版本文件。 **需要 `x-api-key` 请求头** 包含对应项目的API密钥。
+    *   请求体: `multipart/form-data`，包含 `file` (文件本身), `version` (版本号字符串), `releaseNotes` (可选的版本说明)。
+*   `GET /api/projects`:
+    *   描述: (供控制面板使用) 获取所有已配置项目的列表（不含API密钥）。
+
+## 6. 详细文档
+
+有关更深入的技术细节和高级配置，请参阅以下文档：
+
+*   **[部署说明 (Deploy Instructions)](./deploy-instructions.md)**: 包含更详细的服务器部署步骤、防火墙配置、使用PM2的最佳实践以及反向代理（如Nginx）的配置建议。
+*   **[多项目设计 (Multi-Project Design)](./multi-project-design.md)**: 深入解释服务器如何架构以支持和隔离管理多个项目的数据和更新流程。
+
+## 7. 目录结构概览
 
 ```
 Update/
 ├── server/
 │   ├── index.js                # 主API更新服务器逻辑
 │   ├── server-ui.js            # Web控制面板服务器逻辑
-│   ├── config.json             # 系统配置文件 (重要: 请勿直接提交敏感信息到公共仓库)
+│   ├── config.json             # 系统配置文件 (重要!)
 │   ├── config.example.json     # config.json 的示例模板
 │   ├── projects/               # 多项目数据存储根目录
-│   │   ├── [projectId]/        # 单个项目的目录
-│   │   │   ├── version.json    # 该项目的版本信息
-│   │   │   └── uploads/        # 该项目上传的更新文件
-│   │   │       └── .gitkeep    # 确保目录被git追踪
+│   │   ├── [projectId]/        # 单个项目的目录 (例如 myFirstApp/)
+│   │   │   ├── version.json    # 该项目的版本信息文件
+│   │   │   └── uploads/        # 该项目上传的更新文件存放处
+│   │   │       └── .gitkeep    # 确保空目录被git追踪
 │   │   └── .gitkeep
-│   ├── public/                 # 控制面板的前端静态文件 (HTML, CSS, JS)
-│   │   └── icons/              # 项目图标目录
+│   ├── public/                 # 控制面板的前端静态文件 (HTML, CSS, JS, icons)
 │   └── ...                     # 其他服务器端辅助文件
 ├── .gitignore                  # Git忽略文件配置
 ├── package.json
-├── package-lock.json
+├── package-lock.json           # 或 yarn.lock
 ├── README.md                   # 本文档 (中文)
-├── README.en.md                # 英文版README
-├── deploy-instructions.md      # 部署指南
-└── multi-project-design.md     # 多项目设计文档
+├── README.en.md                # 英文版README (如果提供)
+├── deploy-instructions.md      # 详细部署指南
+└── multi-project-design.md     # 多项目架构设计文档
 ```
 
-## 注意事项
+## 8. 配置详解
 
-*   **安全**: 请务必修改 `server/config.json` 中的默认管理员密码，并为每个项目生成强API密钥。
-*   **备份**: 定期备份 `server/config.json` 文件以及整个 `server/projects/` 目录，因为它们包含了所有项目配置、版本历史和上传的更新文件。
-*   **日志**: API服务 (`server/index.js`) 和控制面板服务 (`server/server-ui.js`) 都会在控制台输出日志。控制面板服务还会将一些操作记录到 `server.log` 文件中。
+### 8.1. `server/config.json`
 
-## 贡献
+这是核心配置文件，控制着服务器的行为和项目定义。
 
-欢迎提交 Pull Requests 或 Issues 来改进此项目。
+*   `projects` (Array): 项目列表。
+    *   `id` (String): 项目的唯一标识符。用于API调用和目录名。
+    *   `name` (String): 项目的可读名称，显示在控制面板。
+    *   `description` (String, Optional): 项目描述。
+    *   `apiKey` (String): 用于该项目上传API的认证密钥。**必须保密**。
+    *   `icon` (String, Optional): 指向 `server/public/icons/` 目录下项目图标的路径。
+*   `server` (Object): 服务器全局配置。
+    *   `serverIp` (String): 服务器的公网IP或域名。**用于生成下载链接，非常重要**。
+    *   `port` (Number): API服务监听的端口。
+    *   `adminPort` (Number): 控制面板服务监听的端口。
+    *   `adminUsername` (String): 控制面板登录用户名。
+    *   `adminPassword` (String): 控制面板登录密码。**请务必修改为强密码**。
 
-## 许可证
+### 8.2. `server/projects/[projectId]/version.json`
+
+每个项目独立的版本历史文件，是一个JSON数组，每个对象代表一个版本。
+
+```json
+// 示例: server/projects/myFirstApp/version.json
+[
+  {
+    "version": "1.0.1",
+    "releaseDate": "2024-07-01T10:00:00.000Z", // ISO 8601 日期格式
+    "downloadUrl": "http://yourserver.com:3000/download/myFirstApp/1.0.1",
+    "releaseNotes": "修复了bug A，优化了性能B。",
+    "fileName": "MyApplication_1.0.1.exe",
+    "originalFileName": "MyApplication" // 不含版本号和扩展名的原始基础名
+  },
+  {
+    "version": "1.0.0",
+    // ... 其他字段 ...
+  }
+]
+```
+*   `version` (String): 版本号 (例如 "1.0.0", "2.3.4-beta")。
+*   `releaseDate` (String): 版本发布日期 (ISO 8601格式)。
+*   `downloadUrl` (String): 完整的可下载此版本文件的URL。
+*   `releaseNotes` (String, Optional): 版本更新说明。
+*   `fileName` (String): 此版本在服务器上存储的完整文件名 (包含版本号和扩展名)。
+*   `originalFileName` (String): 上传时确定的、不含版本号和扩展名的原始基础文件名。
+
+## 9. 日志与监控
+
+*   **API服务 (`server/index.js`)**: 主要将日志输出到标准控制台 (stdout/stderr)。如果使用PM2管理，PM2会自动收集这些日志。
+*   **控制面板服务 (`server/server-ui.js`)**: 
+    *   在控制台输出日志。
+    *   重要的操作日志（如项目创建、版本上传、服务启停）会记录到项目根目录下的 `server.log` 文件中。
+    *   控制面板界面提供日志查看功能，显示 `server.log` 的内容。
+*   **服务状态**: 控制面板会显示核心API服务的运行状态（通过尝试连接API端口检测）。
+
+## 10. 安全建议
+
+*   **强凭据**: 务必为控制面板管理员 (`server.adminPassword`) 设置强密码。
+*   **API密钥**: 为每个项目生成并使用唯一的、难以猜测的API密钥。妥善保管，不要硬编码到客户端的公开发布版本中。
+*   **HTTPS**: 在生产环境中，强烈建议使用HTTPS。可以通过Nginx等反向代理来实现SSL/TLS终止。
+*   **防火墙**: 仅开放必要的端口（例如API服务端口、控制面板端口、SSH端口）。
+*   **定期更新**: 保持Node.js、npm/yarn以及操作系统依赖项的更新。
+*   **输入验证**: 服务器端代码已包含对输入参数的一些基本验证。
+*   **备份**: 定期备份 `server/config.json` 和整个 `server/projects/` 目录。
+
+## 11. 常见问题 (FAQ)
+
+*   **Q: 控制面板无法访问？**
+    *   A: 检查 `server/server-ui.js` 是否已启动。检查 `server/config.json` 中的 `adminPort` 是否正确。检查服务器防火墙是否允许该端口的入站连接。查看 `server-ui.js` 的控制台输出或PM2日志有无错误。
+*   **Q: 上传文件失败？**
+    *   A: 确认请求头中 `x-api-key` 是否正确提供了对应项目的API密钥。检查上传文件的大小是否超过 `multer` 的限制（默认为100MB，可在代码中调整）。查看服务器磁盘空间。查看API服务 (`server/index.js`) 的日志获取详细错误。
+*   **Q: 客户端获取到的下载链接无效？**
+    *   A: 确保 `server/config.json` 中的 `server.serverIp` (以及 `server.port` 如果下载链接中包含端口) 配置正确，并且客户端可以从公网访问该IP/域名和端口。
+*   **Q: 中文文件名显示乱码？**
+    *   A: 最新版本已包含针对中文文件名的解码优化。如果仍有问题，请确保您使用的是最新代码，并检查客户端上传文件时是如何编码文件名的。清除旧的乱码文件和版本条目后重试。
+
+## 12. 贡献
+
+欢迎通过提交 Pull Requests 或 Issues 来帮助改进此项目！
+
+## 13. 许可证
 
 [MIT](LICENSE) 
