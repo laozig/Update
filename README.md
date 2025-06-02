@@ -64,7 +64,7 @@
 
 1. **下载代码**：
    ```
-   git clone https://your-repository-url/update-server.git
+   git clone https://github.com/laozig/Update.git
    ```
    或解压下载的压缩包
 
@@ -110,7 +110,7 @@
 
 2. **部署代码**：
    - 将整个`server`目录上传到服务器
-   - 或使用Git克隆仓库：`git clone https://your-repository-url/update-server.git`
+   - 或使用Git克隆仓库：`git clone https://github.com/laozig/Update.git`
 
 3. **安装依赖**：
    ```
@@ -211,7 +211,7 @@
    ```
    server {
        listen 80;
-       server_name update.yourdomain.com;
+       server_name 103.97.179.230;
 
        location / {
            proxy_pass http://localhost:3000;
@@ -247,7 +247,7 @@
 3. **添加以下配置**：
    ```
    <VirtualHost *:80>
-       ServerName update.yourdomain.com
+       ServerName 103.97.179.230
        
        ProxyPreserveHost On
        ProxyPass / http://localhost:3000/
@@ -276,8 +276,8 @@
 
 2. **获取证书**：
    ```
-   sudo certbot --nginx -d update.yourdomain.com    # Nginx
-   sudo certbot --apache -d update.yourdomain.com   # Apache
+   sudo certbot --nginx -d 103.97.179.230    # Nginx
+   sudo certbot --apache -d 103.97.179.230   # Apache
    ```
 
 3. **设置自动续期**：
@@ -395,7 +395,7 @@ const cors = require('cors');
 
 // 替换现有的cors配置
 app.use(cors({
-  origin: ['https://yourdomain.com', 'http://localhost:3000'],
+  origin: ['http://103.97.179.230', 'http://localhost:3000'],
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type', 'x-api-key'],
 }));
@@ -437,7 +437,7 @@ GET /api/version
 
 **示例**:
 ```
-curl -X GET http://your-server:3000/api/version
+curl -X GET http://103.97.179.230:3000/api/version
 ```
 
 ### 2. 上传新版本
@@ -492,7 +492,7 @@ POST /api/upload
 
 **示例**:
 ```
-curl -X POST http://your-server:3000/api/upload \
+curl -X POST http://103.97.179.230:3000/api/upload \
   -F "file=@path/to/your/app.exe" \
   -F "version=1.0.1" \
   -F "releaseNotes=修复了一些bug"
@@ -524,7 +524,7 @@ GET /download/latest
 
 **示例**:
 ```
-curl -X GET http://your-server:3000/download/latest -o latest.exe
+curl -X GET http://103.97.179.230:3000/download/latest -o latest.exe
 ```
 
 ### 4. 下载指定版本
@@ -554,7 +554,7 @@ GET /download/{version}
 
 **示例**:
 ```
-curl -X GET http://your-server:3000/download/1.0.1 -o app-1.0.1.exe
+curl -X GET http://103.97.179.230:3000/download/1.0.1 -o app-1.0.1.exe
 ```
 
 ## 客户端实现指南
@@ -582,7 +582,7 @@ curl -X GET http://your-server:3000/download/1.0.1 -o app-1.0.1.exe
 .版本 2
 
 .子程序 检查更新, 逻辑型
-.参数 服务器地址, 文本型
+.参数 服务器地址, 文本型, , "http://103.97.179.230:3000"
 .参数 当前版本, 文本型
 .局部变量 http, WinHttp.WinHttpRequest
 .局部变量 响应文本, 文本型
@@ -637,7 +637,7 @@ public async Task CheckForUpdates()
         using (HttpClient client = new HttpClient())
         {
             // 获取版本信息
-            HttpResponseMessage response = await client.GetAsync("http://your-server:3000/api/version");
+            HttpResponseMessage response = await client.GetAsync("http://103.97.179.230:3000/api/version");
             response.EnsureSuccessStatusCode();
             string responseBody = await response.Content.ReadAsStringAsync();
             
@@ -664,7 +664,7 @@ public async Task CheckForUpdates()
                 if (result == DialogResult.Yes)
                 {
                     // 下载并安装更新
-                    await DownloadAndInstallUpdate($"http://your-server:3000{downloadUrl}");
+                    await DownloadAndInstallUpdate($"http://103.97.179.230:3000{downloadUrl}");
                 }
             }
         }
