@@ -85,7 +85,7 @@
 
 ### 图形化控制面板
 
-系统提供了一个类似XAMPP的图形化控制面板，方便您启动和管理更新服务器：
+系统提供了一个图形化控制面板，方便您启动和管理更新服务器：
 
 1. **启动控制面板**：
    ```
@@ -143,55 +143,6 @@
    pm2 save
    ```
 
-##### 使用Windows服务（Windows系统）
-
-1. **安装nssm**：
-   - 下载 [nssm](https://nssm.cc/download)
-   - 解压到系统目录
-
-2. **创建服务**：
-   ```
-   nssm install UpdateServer
-   ```
-   - Path: `C:\Program Files\nodejs\node.exe`
-   - Startup directory: `D:\path\to\server`
-   - Arguments: `index.js`
-
-3. **启动服务**：
-   ```
-   nssm start UpdateServer
-   ```
-
-##### 使用Systemd（Linux系统）
-
-1. **创建服务文件**：
-   ```
-   sudo nano /etc/systemd/system/update-server.service
-   ```
-
-2. **添加以下内容**：
-   ```
-   [Unit]
-   Description=Application Update Server
-   After=network.target
-
-   [Service]
-   Type=simple
-   User=your-user
-   WorkingDirectory=/path/to/server
-   ExecStart=/usr/bin/node /path/to/server/index.js
-   Restart=on-failure
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-
-3. **启动服务**：
-   ```
-   sudo systemctl enable update-server
-   sudo systemctl start update-server
-   ```
-
 #### 3. 配置反向代理
 
 ##### Nginx配置
@@ -231,60 +182,6 @@
    sudo systemctl restart nginx
    ```
 
-##### Apache配置
-
-1. **安装Apache和必要模块**：
-   ```
-   sudo apt install apache2 libapache2-mod-proxy-html libxml2-dev
-   sudo a2enmod proxy proxy_http proxy_ajp rewrite deflate headers proxy_balancer proxy_connect proxy_html
-   ```
-
-2. **创建配置文件**：
-   ```
-   sudo nano /etc/apache2/sites-available/update-server.conf
-   ```
-
-3. **添加以下配置**：
-   ```
-   <VirtualHost *:80>
-       ServerName 103.97.179.230
-       
-       ProxyPreserveHost On
-       ProxyPass / http://localhost:3000/
-       ProxyPassReverse / http://localhost:3000/
-       
-       ErrorLog ${APACHE_LOG_DIR}/update-error.log
-       CustomLog ${APACHE_LOG_DIR}/update-access.log combined
-   </VirtualHost>
-   ```
-
-4. **启用站点**：
-   ```
-   sudo a2ensite update-server.conf
-   sudo systemctl restart apache2
-   ```
-
-#### 4. 配置HTTPS（推荐）
-
-##### 使用Let's Encrypt
-
-1. **安装Certbot**：
-   ```
-   sudo apt install certbot python3-certbot-nginx   # Nginx
-   sudo apt install certbot python3-certbot-apache  # Apache
-   ```
-
-2. **获取证书**：
-   ```
-   sudo certbot --nginx -d 103.97.179.230    # Nginx
-   sudo certbot --apache -d 103.97.179.230   # Apache
-   ```
-
-3. **设置自动续期**：
-   ```
-   sudo certbot renew --dry-run
-   ```
-
 ### 防火墙设置
 
 #### Windows防火墙
@@ -316,16 +213,6 @@
    ```
    sudo ufw enable
    ```
-
-#### 云服务器防火墙
-
-对于AWS、Azure、Google Cloud等云服务器，请在其控制台中配置安全组/网络安全规则，开放以下端口：
-
-- **TCP 22**：SSH访问（如果需要）
-- **TCP 80**：HTTP
-- **TCP 443**：HTTPS
-- **TCP 3000**：更新服务器
-- **TCP 8080**：控制面板（如果需要外部访问）
 
 ### 安全性配置
 
@@ -373,34 +260,6 @@
    });
    ```
 
-#### 2. 限制上传文件大小
-
-修改multer配置以限制上传文件大小：
-
-```javascript
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB
-  }
-});
-```
-
-#### 3. 配置CORS
-
-修改index.js，添加更严格的CORS设置：
-
-```javascript
-const cors = require('cors');
-
-// 替换现有的cors配置
-app.use(cors({
-  origin: ['http://103.97.179.230', 'http://localhost:3000'],
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'x-api-key'],
-}));
-```
-
 ## API详细参考
 
 ### 1. 获取最新版本信息
@@ -431,9 +290,6 @@ GET /api/version
   "releaseNotes": "修复了一些bug"     // 版本说明
 }
 ```
-
-**错误响应**:
-- 500 Internal Server Error: 服务器内部错误
 
 **示例**:
 ```
@@ -475,21 +331,6 @@ POST /api/upload
 }
 ```
 
-**错误响应**:
-- 400 Bad Request: 请求参数错误
-  ```json
-  { "error": "没有上传文件" }
-  ```
-  或
-  ```json
-  { "error": "缺少版本号" }
-  ```
-- 500 Internal Server Error: 服务器内部错误
-
-**注意**:
-- 上传的文件会被重命名为 `app-{version}.exe`
-- 如果未提供 releaseNotes，将默认使用 "版本 {version} 更新"
-
 **示例**:
 ```
 curl -X POST http://103.97.179.230:3000/api/upload \
@@ -507,20 +348,10 @@ curl -X POST http://103.97.179.230:3000/api/upload \
 GET /download/latest
 ```
 
-**请求头**: 无
-
-**参数**: 无
-
 **响应**:
 - 状态码: 200 OK
 - 内容类型: application/octet-stream
 - 内容: 二进制文件数据
-
-**错误响应**:
-- 404 Not Found: 文件不存在
-  ```json
-  { "error": "文件不存在" }
-  ```
 
 **示例**:
 ```
@@ -536,8 +367,6 @@ curl -X GET http://103.97.179.230:3000/download/latest -o latest.exe
 GET /download/{version}
 ```
 
-**请求头**: 无
-
 **路径参数**:
 - `version`: 要下载的版本号，例如 "1.0.1"
 
@@ -545,12 +374,6 @@ GET /download/{version}
 - 状态码: 200 OK
 - 内容类型: application/octet-stream
 - 内容: 二进制文件数据
-
-**错误响应**:
-- 404 Not Found: 文件不存在
-  ```json
-  { "error": "文件不存在" }
-  ```
 
 **示例**:
 ```
@@ -575,106 +398,6 @@ curl -X GET http://103.97.179.230:3000/download/1.0.1 -o app-1.0.1.exe
 3. **安装更新**：
    - 运行下载的更新文件
    - 退出当前应用程序
-
-### 易语言实现示例
-
-```易语言
-.版本 2
-
-.子程序 检查更新, 逻辑型
-.参数 服务器地址, 文本型, , "http://103.97.179.230:3000"
-.参数 当前版本, 文本型
-.局部变量 http, WinHttp.WinHttpRequest
-.局部变量 响应文本, 文本型
-.局部变量 版本号, 文本型
-.局部变量 下载地址, 文本型
-.局部变量 更新说明, 文本型
-
-http = 创建对象 ("WinHttp.WinHttpRequest.5.1")
-http.Open ("GET", 服务器地址 + "/api/version", .假)  ' 同步请求
-http.Send ()
-
-如果 (http.Status = 200) 则
-    响应文本 = http.ResponseText
-    
-    ' 解析JSON
-    版本号 = 取中间文本 (响应文本, """version"":""", """")
-    下载地址 = 取中间文本 (响应文本, """downloadUrl"":""", """")
-    更新说明 = 取中间文本 (响应文本, """releaseNotes"":""", """")
-    
-    ' 比较版本
-    如果 (比较版本 (版本号, 当前版本) > 0) 则
-        ' 有新版本
-        如果 (信息框 ("发现新版本: " + 版本号 + #换行符 + 
-              "更新说明: " + 更新说明 + #换行符 + #换行符 + 
-              "是否立即更新?", 
-              "软件更新", 36) = 6) 则
-            ' 用户确认更新，下载新版本
-            下载并安装更新 (服务器地址 + 下载地址)
-            返回 真
-        否则
-            ' 用户取消更新
-            返回 假
-        结束
-    否则
-        ' 已经是最新版本
-        返回 假
-    结束
-否则
-    信息框 ("检查更新失败，错误代码: " + 到文本 (http.Status), "错误", 16)
-    返回 假
-结束
-.子程序结束
-```
-
-### C#实现示例
-
-```csharp
-public async Task CheckForUpdates()
-{
-    try
-    {
-        using (HttpClient client = new HttpClient())
-        {
-            // 获取版本信息
-            HttpResponseMessage response = await client.GetAsync("http://103.97.179.230:3000/api/version");
-            response.EnsureSuccessStatusCode();
-            string responseBody = await response.Content.ReadAsStringAsync();
-            
-            // 解析JSON
-            JObject json = JObject.Parse(responseBody);
-            string latestVersion = json["version"].ToString();
-            string downloadUrl = json["downloadUrl"].ToString();
-            string releaseNotes = json["releaseNotes"].ToString();
-            
-            // 比较版本
-            Version currentVersion = new Version(Application.ProductVersion);
-            Version newVersion = new Version(latestVersion);
-            
-            if (newVersion > currentVersion)
-            {
-                // 提示更新
-                DialogResult result = MessageBox.Show(
-                    $"发现新版本: {latestVersion}\n\n更新说明: {releaseNotes}\n\n是否立即更新?",
-                    "软件更新",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Information
-                );
-                
-                if (result == DialogResult.Yes)
-                {
-                    // 下载并安装更新
-                    await DownloadAndInstallUpdate($"http://103.97.179.230:3000{downloadUrl}");
-                }
-            }
-        }
-    }
-    catch (Exception ex)
-    {
-        MessageBox.Show($"检查更新失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-    }
-}
-```
 
 ### 版本比较逻辑
 
