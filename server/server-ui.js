@@ -4,6 +4,8 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const open = require('open');
 const multer = require('multer');
+const basicAuth = require('express-basic-auth');
+const net = require('net');
 
 // 控制面板应用
 const app = express();
@@ -12,666 +14,411 @@ let serverProcess = null;
 let serverRunning = false;
 let serverLogs = [];
 
+// 加载系统配置
+const configPath = path.join(__dirname, 'config.json');
+let config = {
+  projects: [],
+  server: {
+    port: 3000,
+    adminPort: 8080,
+    adminUsername: 'admin',
+    adminPassword: 'admin'
+  }
+};
+
+// 加载配置文件
+const loadConfig = () => {
+  try {
+    if (fs.existsSync(configPath)) {
+      const data = fs.readFileSync(configPath, 'utf8');
+      config = JSON.parse(data);
+    } else {
+      saveConfig();
+    }
+  } catch (err) {
+    console.error('加载配置失败:', err);
+  }
+};
+
+// 保存配置文件
+const saveConfig = () => {
+  try {
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  } catch (err) {
+    console.error('保存配置失败:', err);
+  }
+};
+
+// 初始化加载配置
+loadConfig();
+
+// 基本认证配置
+app.use(basicAuth({
+  users: { [config.server.adminUsername]: config.server.adminPassword },
+  challenge: true,
+  realm: 'UpdateServerAdminPanel',
+}));
+
 // 配置文件上传
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, 'uploads'));
+    const projectId = req.params.projectId;
+    const uploadsDir = path.join(__dirname, 'projects', projectId, 'uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
-    // 使用app-{version}.exe格式保存文件
     cb(null, `app-${req.body.version}.exe`);
   }
 });
-const upload = multer({ storage });
+
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB
+  }
+});
 
 // 静态文件
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 创建public目录和必要的文件
-const publicDir = path.join(__dirname, 'public');
-if (!fs.existsSync(publicDir)) {
-  fs.mkdirSync(publicDir);
-}
-
-// 创建uploads目录（如果不存在）
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir);
-}
-
-// 创建控制面板HTML
-const htmlContent = `
-<!DOCTYPE html>
-<html lang="zh">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>更新服务器控制面板</title>
-  <style>
-    body {
-      font-family: 'Microsoft YaHei', Arial, sans-serif;
-      margin: 0;
-      padding: 20px;
-      background-color: #f5f5f5;
-      color: #333;
-    }
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-      background: white;
-      padding: 20px;
-      border-radius: 5px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    h1 {
-      color: #333;
-      border-bottom: 1px solid #eee;
-      padding-bottom: 10px;
-      margin-top: 0;
-    }
-    .control-panel {
-      display: flex;
-      margin-bottom: 20px;
-      align-items: center;
-    }
-    .status {
-      margin-left: 20px;
-      padding: 5px 10px;
-      border-radius: 3px;
-      font-weight: bold;
-    }
-    .status.running {
-      background-color: #d4edda;
-      color: #155724;
-    }
-    .status.stopped {
-      background-color: #f8d7da;
-      color: #721c24;
-    }
-    button {
-      background-color: #007bff;
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-      transition: background-color 0.3s;
-    }
-    button:hover {
-      background-color: #0069d9;
-    }
-    button:disabled {
-      background-color: #cccccc;
-      cursor: not-allowed;
-    }
-    button.stop {
-      background-color: #dc3545;
-    }
-    button.stop:hover {
-      background-color: #c82333;
-    }
-    .log-container {
-      background-color: #f8f9fa;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      padding: 10px;
-      height: 300px;
-      overflow-y: auto;
-      font-family: Consolas, monospace;
-      font-size: 13px;
-    }
-    .log-line {
-      margin: 0;
-      padding: 2px 0;
-      border-bottom: 1px solid #f0f0f0;
-    }
-    .info-panel {
-      margin-top: 20px;
-      padding: 15px;
-      background-color: #e9ecef;
-      border-radius: 4px;
-    }
-    .info-panel h3 {
-      margin-top: 0;
-    }
-    .info-panel p {
-      margin-bottom: 5px;
-    }
-    .api-url {
-      font-family: Consolas, monospace;
-      background-color: #f8f9fa;
-      padding: 2px 4px;
-      border-radius: 3px;
-      border: 1px solid #ddd;
-    }
-    .tabs {
-      display: flex;
-      border-bottom: 1px solid #ddd;
-      margin-bottom: 15px;
-    }
-    .tab {
-      padding: 10px 15px;
-      cursor: pointer;
-      border: 1px solid transparent;
-      border-bottom: none;
-      margin-bottom: -1px;
-      background-color: transparent;
-      color: #007bff;
-    }
-    .tab.active {
-      border-color: #ddd;
-      border-radius: 4px 4px 0 0;
-      background-color: white;
-      color: #333;
-      font-weight: bold;
-    }
-    .tab-content {
-      display: none;
-    }
-    .tab-content.active {
-      display: block;
-    }
-    .form-group {
-      margin-bottom: 15px;
-    }
-    label {
-      display: block;
-      margin-bottom: 5px;
-      font-weight: bold;
-    }
-    input[type="text"], textarea {
-      width: 100%;
-      padding: 8px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      box-sizing: border-box;
-    }
-    textarea {
-      height: 100px;
-      resize: vertical;
-    }
-    .version-list {
-      margin-top: 20px;
-    }
-    .version-item {
-      padding: 10px;
-      background-color: #f8f9fa;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      margin-bottom: 10px;
-    }
-    .version-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-weight: bold;
-    }
-    .version-date {
-      color: #666;
-      font-size: 0.9em;
-    }
-    .version-notes {
-      margin-top: 5px;
-      color: #555;
-    }
-    .alert {
-      padding: 10px 15px;
-      border-radius: 4px;
-      margin-bottom: 15px;
-      display: none;
-    }
-    .alert-success {
-      background-color: #d4edda;
-      color: #155724;
-      border: 1px solid #c3e6cb;
-    }
-    .alert-danger {
-      background-color: #f8d7da;
-      color: #721c24;
-      border: 1px solid #f5c6cb;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>更新服务器控制面板</h1>
-    
-    <div class="tabs">
-      <div class="tab active" onclick="switchTab('control')">服务器控制</div>
-      <div class="tab" onclick="switchTab('upload')">上传新版本</div>
-      <div class="tab" onclick="switchTab('versions')">版本管理</div>
-    </div>
-    
-    <div id="alertSuccess" class="alert alert-success"></div>
-    <div id="alertError" class="alert alert-danger"></div>
-    
-    <div id="controlTab" class="tab-content active">
-      <div class="control-panel">
-        <button id="startBtn" onclick="startServer()">启动服务器</button>
-        <button id="stopBtn" class="stop" onclick="stopServer()" disabled>停止服务器</button>
-        <div id="status" class="status stopped">已停止</div>
-      </div>
-      
-      <h3>服务器日志</h3>
-      <div id="logs" class="log-container"></div>
-      
-      <div class="info-panel">
-        <h3>服务器信息</h3>
-        <p>状态: <span id="serverStatus">已停止</span></p>
-        <p>端口: <span id="serverPort">3000</span></p>
-        <p>版本API: <span class="api-url">http://localhost:3000/api/version</span></p>
-        <p>下载API: <span class="api-url">http://localhost:3000/download/latest</span></p>
-      </div>
-    </div>
-    
-    <div id="uploadTab" class="tab-content">
-      <h3>上传新版本</h3>
-      <form id="uploadForm" enctype="multipart/form-data">
-        <div class="form-group">
-          <label for="version">版本号:</label>
-          <input type="text" id="version" name="version" placeholder="例如: 1.0.0" required>
-        </div>
-        <div class="form-group">
-          <label for="releaseNotes">版本说明:</label>
-          <textarea id="releaseNotes" name="releaseNotes" placeholder="描述此版本的更新内容..."></textarea>
-        </div>
-        <div class="form-group">
-          <label for="file">应用程序文件:</label>
-          <input type="file" id="file" name="file" accept=".exe" required>
-        </div>
-        <button type="button" onclick="uploadVersion()">上传版本</button>
-      </form>
-    </div>
-    
-    <div id="versionsTab" class="tab-content">
-      <h3>已发布版本</h3>
-      <div id="versionsList" class="version-list">
-        <p>加载中...</p>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    let serverRunning = false;
-    
-    // 页面加载时检查服务器状态
-    window.onload = function() {
-      checkServerStatus();
-      fetchLogs();
-    };
-    
-    // 切换标签页
-    function switchTab(tabId) {
-      // 隐藏所有标签内容
-      document.querySelectorAll('.tab-content').forEach(tab => {
-        tab.classList.remove('active');
-      });
-      
-      // 取消选中所有标签
-      document.querySelectorAll('.tab').forEach(tab => {
-        tab.classList.remove('active');
-      });
-      
-      // 显示选中的标签内容
-      document.getElementById(tabId + 'Tab').classList.add('active');
-      
-      // 选中当前标签
-      document.querySelectorAll('.tab').forEach(tab => {
-        if (tab.textContent.toLowerCase().includes(tabId)) {
-          tab.classList.add('active');
-        }
-      });
-      
-      // 如果切换到版本管理标签，加载版本列表
-      if (tabId === 'versions') {
-        fetchVersions();
-      }
-    }
-    
-    // 检查服务器状态
-    function checkServerStatus() {
-      fetch('/status')
-        .then(response => response.json())
-        .then(data => {
-          updateStatus(data.running);
-        })
-        .catch(err => console.error('Error checking status:', err));
-    }
-    
-    // 获取日志
-    function fetchLogs() {
-      fetch('/logs')
-        .then(response => response.json())
-        .then(data => {
-          const logsContainer = document.getElementById('logs');
-          logsContainer.innerHTML = '';
-          
-          data.logs.forEach(log => {
-            const logLine = document.createElement('p');
-            logLine.className = 'log-line';
-            logLine.textContent = log;
-            logsContainer.appendChild(logLine);
-          });
-          
-          // 滚动到底部
-          logsContainer.scrollTop = logsContainer.scrollHeight;
-        })
-        .catch(err => console.error('Error fetching logs:', err));
-    }
-    
-    // 更新状态显示
-    function updateStatus(isRunning) {
-      serverRunning = isRunning;
-      const statusEl = document.getElementById('status');
-      const serverStatusEl = document.getElementById('serverStatus');
-      const startBtn = document.getElementById('startBtn');
-      const stopBtn = document.getElementById('stopBtn');
-      
-      if (isRunning) {
-        statusEl.textContent = '运行中';
-        statusEl.className = 'status running';
-        serverStatusEl.textContent = '运行中';
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
-      } else {
-        statusEl.textContent = '已停止';
-        statusEl.className = 'status stopped';
-        serverStatusEl.textContent = '已停止';
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
-      }
-    }
-    
-    // 启动服务器
-    function startServer() {
-      fetch('/start', { method: 'POST' })
-        .then(response => response.json())
-        .then(data => {
-          updateStatus(data.running);
-          // 定期获取日志
-          setTimeout(fetchLogs, 1000);
-        })
-        .catch(err => console.error('Error starting server:', err));
-    }
-    
-    // 停止服务器
-    function stopServer() {
-      fetch('/stop', { method: 'POST' })
-        .then(response => response.json())
-        .then(data => {
-          updateStatus(data.running);
-          setTimeout(fetchLogs, 1000);
-        })
-        .catch(err => console.error('Error stopping server:', err));
-    }
-    
-    // 上传新版本
-    function uploadVersion() {
-      const form = document.getElementById('uploadForm');
-      const formData = new FormData(form);
-      
-      // 检查表单数据
-      const version = formData.get('version');
-      const file = formData.get('file');
-      
-      if (!version) {
-        showAlert('error', '请输入版本号');
-        return;
-      }
-      
-      if (!file || file.size === 0) {
-        showAlert('error', '请选择应用程序文件');
-        return;
-      }
-      
-      fetch('/upload', {
-        method: 'POST',
-        body: formData
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.error) {
-          showAlert('error', data.error);
-        } else {
-          showAlert('success', '版本上传成功！');
-          form.reset();
-          // 如果在版本管理标签页，刷新版本列表
-          if (document.getElementById('versionsTab').classList.contains('active')) {
-            fetchVersions();
-          }
-        }
-      })
-      .catch(err => {
-        console.error('Error uploading version:', err);
-        showAlert('error', '上传失败，请检查服务器是否运行');
-      });
-    }
-    
-    // 获取版本列表
-    function fetchVersions() {
-      fetch('/versions')
-        .then(response => response.json())
-        .then(data => {
-          const versionsContainer = document.getElementById('versionsList');
-          
-          if (!data.versions || data.versions.length === 0) {
-            versionsContainer.innerHTML = '<p>暂无版本记录</p>';
-            return;
-          }
-          
-          versionsContainer.innerHTML = '';
-          
-          data.versions.forEach(version => {
-            const versionItem = document.createElement('div');
-            versionItem.className = 'version-item';
-            
-            const versionHeader = document.createElement('div');
-            versionHeader.className = 'version-header';
-            
-            const versionTitle = document.createElement('div');
-            versionTitle.textContent = '版本 ' + version.version;
-            
-            const versionDate = document.createElement('div');
-            versionDate.className = 'version-date';
-            versionDate.textContent = new Date(version.releaseDate).toLocaleString();
-            
-            versionHeader.appendChild(versionTitle);
-            versionHeader.appendChild(versionDate);
-            
-            const versionNotes = document.createElement('div');
-            versionNotes.className = 'version-notes';
-            versionNotes.textContent = version.releaseNotes;
-            
-            versionItem.appendChild(versionHeader);
-            versionItem.appendChild(versionNotes);
-            versionsContainer.appendChild(versionItem);
-          });
-        })
-        .catch(err => {
-          console.error('Error fetching versions:', err);
-          document.getElementById('versionsList').innerHTML = '<p>获取版本信息失败</p>';
-        });
-    }
-    
-    // 显示提示信息
-    function showAlert(type, message) {
-      const successAlert = document.getElementById('alertSuccess');
-      const errorAlert = document.getElementById('alertError');
-      
-      if (type === 'success') {
-        successAlert.textContent = message;
-        successAlert.style.display = 'block';
-        errorAlert.style.display = 'none';
-      } else {
-        errorAlert.textContent = message;
-        errorAlert.style.display = 'block';
-        successAlert.style.display = 'none';
-      }
-      
-      // 5秒后隐藏提示
-      setTimeout(() => {
-        successAlert.style.display = 'none';
-        errorAlert.style.display = 'none';
-      }, 5000);
-    }
-    
-    // 定期刷新日志和状态
-    setInterval(fetchLogs, 3000);
-    setInterval(checkServerStatus, 5000);
-  </script>
-</body>
-</html>
-`;
-
-fs.writeFileSync(path.join(publicDir, 'index.html'), htmlContent);
-
-// 加载版本信息
-let versionInfo = {
-  version: '1.0.0',
-  releaseDate: new Date().toISOString(),
-  downloadUrl: '/download/latest',
-  releaseNotes: '初始版本'
+// 版本信息管理
+const getVersionFilePath = (projectId) => {
+  return path.join(__dirname, 'projects', projectId, 'version.json');
 };
 
-// 从文件加载版本信息
-const loadVersionInfo = () => {
+const loadVersions = (projectId) => {
   try {
-    const versionPath = path.join(__dirname, 'version.json');
-    if (fs.existsSync(versionPath)) {
-      const data = fs.readFileSync(versionPath, 'utf8');
-      versionInfo = JSON.parse(data);
-    } else {
-      // 保存默认版本信息
-      saveVersionInfo();
+    const versionFilePath = getVersionFilePath(projectId);
+    if (fs.existsSync(versionFilePath)) {
+      const data = fs.readFileSync(versionFilePath, 'utf8');
+      return JSON.parse(data);
     }
+    return [];
   } catch (err) {
-    console.log('加载版本信息失败:', err);
+    console.error(`加载项目 ${projectId} 的版本信息失败:`, err);
+    return [];
   }
 };
 
-// 保存版本信息到文件
-const saveVersionInfo = () => {
+const saveVersions = (projectId, versions) => {
   try {
-    fs.writeFileSync(
-      path.join(__dirname, 'version.json'),
-      JSON.stringify(versionInfo, null, 2)
-    );
+    const versionFilePath = getVersionFilePath(projectId);
+    fs.writeFileSync(versionFilePath, JSON.stringify(versions, null, 2));
   } catch (err) {
-    console.log('保存版本信息失败:', err);
+    console.error(`保存项目 ${projectId} 的版本信息失败:`, err);
   }
 };
-
-// 初始化加载版本信息
-loadVersionInfo();
 
 // API路由
+
+// 获取项目列表
+app.get('/api/projects', (req, res) => {
+  const safeProjects = config.projects.map(({ id, name, description, icon }) => ({
+    id, name, description, icon
+  }));
+  res.json(safeProjects);
+});
+
+// 获取单个项目详情
+app.get('/api/projects/:projectId', (req, res) => {
+  const { projectId } = req.params;
+  const project = config.projects.find(p => p.id === projectId);
+  
+  if (!project) {
+    return res.status(404).json({ error: '项目不存在' });
+  }
+
+  res.json(project); // 返回完整的项目信息，包括 apiKey
+});
+
+// 添加新项目
+app.post('/api/projects', (req, res) => {
+  const { id, name, description } = req.body;
+  
+  if (!id || !name) {
+    return res.status(400).json({ error: '项目ID和名称是必需的' });
+  }
+
+  if (config.projects.some(p => p.id === id)) {
+    return res.status(400).json({ error: '项目ID已存在' });
+  }
+
+  const newProject = {
+    id,
+    name,
+    description: description || '',
+    apiKey: `api-key-${id}-${Date.now()}`,
+    icon: 'icons/default.png'
+  };
+
+  config.projects.push(newProject);
+  saveConfig();
+
+  // 创建项目目录结构
+  const projectDir = path.join(__dirname, 'projects', id);
+  const uploadsDir = path.join(projectDir, 'uploads');
+  fs.mkdirSync(uploadsDir, { recursive: true });
+
+  // 初始化空的版本文件
+  saveVersions(id, []);
+
+  const safeProject = { ...newProject };
+  delete safeProject.apiKey;
+  res.json(safeProject);
+});
+
+// 编辑项目
+app.put('/api/projects/:projectId', (req, res) => {
+  const { projectId } = req.params;
+  const { name, description } = req.body;
+
+  const projectIndex = config.projects.findIndex(p => p.id === projectId);
+  if (projectIndex === -1) {
+    return res.status(404).json({ error: '项目不存在' });
+  }
+
+  config.projects[projectIndex] = {
+    ...config.projects[projectIndex],
+    name: name || config.projects[projectIndex].name,
+    description: description || config.projects[projectIndex].description
+  };
+
+  saveConfig();
+
+  const safeProject = { ...config.projects[projectIndex] };
+  delete safeProject.apiKey;
+  res.json(safeProject);
+});
+
+// 删除项目
+app.delete('/api/projects/:projectId', (req, res) => {
+  const { projectId } = req.params;
+
+  const projectIndex = config.projects.findIndex(p => p.id === projectId);
+  if (projectIndex === -1) {
+    return res.status(404).json({ error: '项目不存在' });
+  }
+
+  // 从配置中移除项目
+  config.projects.splice(projectIndex, 1);
+  saveConfig();
+
+  // 删除项目目录（可选，取决于是否要保留历史数据）
+  // const projectDir = path.join(__dirname, 'projects', projectId);
+  // if (fs.existsSync(projectDir)) {
+  //   fs.rmdirSync(projectDir, { recursive: true });
+  // }
+
+  res.json({ message: '项目已删除' });
+});
+
+// 重置项目API密钥
+app.post('/api/projects/:projectId/reset-key', (req, res) => {
+  const { projectId } = req.params;
+
+  const project = config.projects.find(p => p.id === projectId);
+  if (!project) {
+    return res.status(404).json({ error: '项目不存在' });
+  }
+
+  project.apiKey = `api-key-${projectId}-${Date.now()}`;
+  saveConfig();
+
+  res.json({ apiKey: project.apiKey });
+});
+
 app.get('/status', (req, res) => {
-  res.json({ running: serverRunning });
+  const client = new net.Socket();
+  let responded = false;
+  client.setTimeout(500);
+  client.connect(config.server.port, '127.0.0.1', () => {
+    responded = true;
+    client.destroy();
+    res.json({ running: true });
+  });
+  client.on('error', () => {
+    if (!responded) {
+      responded = true;
+      res.json({ running: false });
+    }
+  });
+  client.on('timeout', () => {
+    if (!responded) {
+      responded = true;
+      res.json({ running: false });
+    }
+    client.destroy();
+  });
 });
 
 app.get('/logs', (req, res) => {
   res.json({ logs: serverLogs });
 });
 
-// 获取版本列表
-app.get('/versions', (req, res) => {
-  try {
-    // 如果有多个版本，这里应该从数据库或文件系统读取
-    // 目前只返回当前版本
-    res.json({ versions: [versionInfo] });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+// 获取项目版本列表
+app.get('/api/versions/:projectId', (req, res) => {
+  const { projectId } = req.params;
+  const versions = loadVersions(projectId);
+  res.json({ versions });
 });
 
 // 上传新版本
-app.post('/upload', upload.single('file'), (req, res) => {
+app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
   try {
+    const { projectId } = req.params;
+    
     if (!req.file) {
       return res.status(400).json({ error: '没有上传文件' });
     }
     
     const { version, releaseNotes } = req.body;
-    
     if (!version) {
       return res.status(400).json({ error: '缺少版本号' });
     }
+
+    const versions = loadVersions(projectId);
     
-    // 更新版本信息
-    versionInfo = {
+    if (versions.some(v => v.version === version)) {
+      return res.status(400).json({ error: `版本 ${version} 已存在` });
+    }
+
+    const newVersionInfo = {
       version,
       releaseDate: new Date().toISOString(),
-      downloadUrl: `/download/${version}`,
-      releaseNotes: releaseNotes || `版本 ${version} 更新`
+      downloadUrl: `/download/${projectId}/${version}`,
+      releaseNotes: releaseNotes || `版本 ${version} 更新`,
+      fileName: `app-${version}.exe`
     };
     
-    // 保存版本信息
-    saveVersionInfo();
-    
-    // 添加日志
-    serverLogs.push(`新版本 ${version} 已上传`);
-    
-    res.json({ 
-      message: '版本更新成功',
-      version: versionInfo
+    versions.push(newVersionInfo);
+    versions.sort((a, b) => {
+      const verA = a.version.split('.').map(Number);
+      const verB = b.version.split('.').map(Number);
+      for (let i = 0; i < Math.max(verA.length, verB.length); i++) {
+        const numA = verA[i] || 0;
+        const numB = verB[i] || 0;
+        if (numA !== numB) {
+          return numB - numA;
+        }
+      }
+      return 0;
     });
+    
+    saveVersions(projectId, versions);
+    serverLogs.push(`项目 ${projectId} 的新版本 ${version} 已上传: ${newVersionInfo.fileName}`);
+    res.json({ message: '版本上传成功', version: newVersionInfo });
+
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('上传失败:', err);
+    serverLogs.push(`上传失败: ${err.message}`);
+    res.status(500).json({ error: '上传失败，服务器内部错误' });
   }
 });
 
 app.post('/start', (req, res) => {
-  if (!serverRunning) {
-    try {
-      serverProcess = spawn('node', [path.join(__dirname, 'index.js')]);
-      
-      serverProcess.stdout.on('data', (data) => {
-        const logLine = data.toString().trim();
-        serverLogs.push(logLine);
-        if (serverLogs.length > 100) serverLogs.shift();
-      });
-      
-      serverProcess.stderr.on('data', (data) => {
-        const logLine = `错误: ${data.toString().trim()}`;
-        serverLogs.push(logLine);
-        if (serverLogs.length > 100) serverLogs.shift();
-      });
-      
-      serverProcess.on('close', (code) => {
-        serverLogs.push(`服务器已停止，退出代码: ${code}`);
+  if (serverRunning) {
+    return res.json({ running: true, message: '服务器已经在运行' });
+  }
+  try {
+    const mainServerScriptPath = path.join(__dirname, 'index.js');
+    console.log(`尝试启动主服务器: node ${mainServerScriptPath}`);
+    serverProcess = spawn('node', [mainServerScriptPath], { detached: true, stdio: 'pipe' });
+    
+    serverProcess.stdout.on('data', (data) => {
+      const logLine = data.toString().trim();
+      console.log('Main Server STDOUT:', logLine);
+      serverLogs.push(logLine);
+      if (serverLogs.length > 200) serverLogs.shift();
+    });
+    
+    serverProcess.stderr.on('data', (data) => {
+      const logLine = `错误: ${data.toString().trim()}`;
+      console.error('Main Server STDERR:', logLine);
+      serverLogs.push(logLine);
+      if (serverLogs.length > 200) serverLogs.shift();
+    });
+    
+    serverProcess.on('close', (code) => {
+      const logMessage = `主服务器已停止，退出代码: ${code}`;
+      console.log(logMessage);
+      serverLogs.push(logMessage);
+      serverRunning = false;
+    });
+
+    serverProcess.on('error', (err) => {
+      const errorMessage = `主服务器进程错误: ${err.message}`;
+      console.error(errorMessage);
+      serverLogs.push(errorMessage);
+      serverRunning = false;
+    });
+    
+    setTimeout(() => {
+      if (serverProcess && !serverProcess.killed && serverProcess.exitCode === null) {
+        serverRunning = true;
+        serverLogs.push('主服务器已启动');
+        console.log('主服务器已启动。');
+        res.json({ running: true });
+      } else {
+        const failMessage = '主服务器未能成功启动或立即退出。';
+        console.error(failMessage);
+        serverLogs.push(failMessage);
         serverRunning = false;
-      });
-      
-      serverRunning = true;
-      serverLogs.push('服务器已启动');
-      res.json({ running: true });
-    } catch (error) {
-      serverLogs.push(`启动失败: ${error.message}`);
-      res.status(500).json({ error: error.message });
-    }
-  } else {
-    res.json({ running: true, message: '服务器已经在运行' });
+        res.status(500).json({ error: failMessage });
+      }
+    }, 1000);
+
+  } catch (error) {
+    const catchMessage = `启动主服务器时发生异常: ${error.message}`;
+    console.error(catchMessage, error);
+    serverLogs.push(catchMessage);
+    res.status(500).json({ error: catchMessage });
   }
 });
 
 app.post('/stop', (req, res) => {
-  if (serverRunning && serverProcess) {
-    serverProcess.kill();
+  if (!serverRunning || !serverProcess) {
+    return res.json({ running: false, message: '服务器未在运行' });
+  }
+
+  try {
+    process.kill(-serverProcess.pid);
     serverProcess = null;
     serverRunning = false;
-    serverLogs.push('服务器已停止');
+    serverLogs.push('主服务器已停止');
     res.json({ running: false });
-  } else {
-    res.json({ running: false, message: '服务器已经停止' });
+  } catch (error) {
+    const errorMessage = `停止服务器时发生错误: ${error.message}`;
+    console.error(errorMessage);
+    serverLogs.push(errorMessage);
+    res.status(500).json({ error: errorMessage });
   }
 });
 
-// 启动控制面板
-app.listen(uiPort, () => {
-  console.log(`控制面板运行在 http://localhost:${uiPort}`);
-  // 自动打开浏览器
-  open(`http://localhost:${uiPort}`);
+// 启动控制面板服务器
+app.listen(config.server.adminPort, () => {
+  console.log(`控制面板运行在 http://localhost:${config.server.adminPort}`);
+  serverLogs.push(`控制面板已启动，端口: ${config.server.adminPort}`);
 }); 
+
+function showAlert(type, message) {
+  const successAlert = document.getElementById('alertSuccess');
+  const errorAlert = document.getElementById('alertError');
+  if (type === 'success') {
+    successAlert.innerHTML = message.replace(/\n/g, '<br>');
+    successAlert.style.display = 'block';
+    errorAlert.style.display = 'none';
+  } else {
+    errorAlert.innerHTML = message.replace(/\n/g, '<br>');
+    errorAlert.style.display = 'block';
+    successAlert.style.display = 'none';
+  }
+  setTimeout(() => {
+    successAlert.style.display = 'none';
+    errorAlert.style.display = 'none';
+  }, 5000);
+} 

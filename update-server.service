@@ -1,0 +1,19 @@
+[Unit]
+Description=自动更新服务器
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+# 替换为你的实际部署路径
+WorkingDirectory=/path/to/update/server
+ExecStart=/usr/bin/node server/server-ui.js
+Restart=on-failure
+RestartSec=10
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=update-server
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target 

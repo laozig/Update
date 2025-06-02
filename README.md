@@ -1,470 +1,359 @@
-# 应用程序自动更新系统
+# 更新服务器
 
-这个系统提供了一个简单的方式来为您的应用程序添加自动更新功能。系统主要由更新服务器组成，提供API接口供客户端检查和下载更新。
+这是一个为EXE程序设计的后端系统，用于自动检查更新和下载新版本。
 
-## 目录
+## 功能特性
 
-- [系统概述](#系统概述)
-- [快速开始](#快速开始)
-- [服务器设置](#服务器设置)
-  - [前提条件](#前提条件)
-  - [安装步骤](#安装步骤)
-  - [图形化控制面板](#图形化控制面板)
-  - [部署到生产环境](#部署到生产环境)
-  - [防火墙设置](#防火墙设置)
-  - [安全性配置](#安全性配置)
-- [API详细参考](#api详细参考)
-- [客户端实现指南](#客户端实现指南)
-- [常见问题](#常见问题)
-- [注意事项](#注意事项)
+-   **版本检查**: 客户端可以查询最新版本信息。
+-   **版本上传**: 通过控制面板上传新版本的EXE文件和版本信息。
+-   **版本下载**: 客户端可以下载最新版本或指定版本的EXE文件。
+-   **Web控制面板**: 图形化界面，用于启动/停止更新服务器、查看日志、上传和管理版本。
 
-## 系统概述
+## 目录结构
 
-更新服务器系统由以下组件组成：
-
-1. **更新服务器**：处理版本检查和文件下载请求
-2. **控制面板**：图形化界面，用于管理更新服务器
-3. **API接口**：供客户端应用程序调用的接口
-4. **文件存储**：存储不同版本的应用程序文件
-
-系统工作流程：
-
-1. 开发者上传新版本的应用程序到服务器
-2. 客户端应用程序定期检查服务器上的版本信息
-3. 如果有新版本，客户端下载并安装更新
+```
+Update/
+├── server/
+│   ├── index.js            # 主更新服务器逻辑
+│   ├── server-ui.js        # Web控制面板服务器逻辑
+│   ├── version.json        # 存储版本信息
+│   ├── uploads/            # 存储上传的EXE文件
+│   │   └── .gitkeep        # 保持uploads目录在git中
+│   └── public/
+│       └── index.html      # 控制面板前端页面 (由server-ui.js动态生成)
+├── start-update-server.sh  # Linux启动脚本
+├── stop-update-server.sh   # Linux停止脚本
+├── update-server.service   # systemd服务配置文件
+├── .gitignore              # Git忽略配置
+├── package.json            # 项目依赖和脚本
+├── package-lock.json       # 依赖版本锁定
+└── README.md               # 本文档
+```
 
 ## 快速开始
 
-1. **安装依赖**：
-   ```
-   cd server
-   npm install
-   ```
+1.  **克隆仓库**:
+    ```bash
+    git clone https://github.com/laozig/Update.git
+    cd Update
+    ```
 
-2. **启动控制面板**：
-   ```
-   npm run ui
-   ```
-   或双击 `run.bat` 文件
+2.  **安装依赖**:
+    ```bash
+    npm install
+    ```
 
-3. **在控制面板中启动服务器**
+3.  **启动控制面板**:
+    ```bash
+    npm run ui
+    ```
+    控制面板将在 `http://localhost:8080` 运行。首次访问需要输入用户名和密码，默认为 `admin` / `admin` (请在 `server/server-ui.js` 中修改)。
 
-4. **上传应用程序**：
-   在控制面板中切换到"上传新版本"标签
+4.  **通过控制面板启动更新服务器**:
+    -   打开 `http://localhost:8080`。
+    -   输入认证凭据。
+    -   点击 "启动服务器" 按钮。
+    -   更新服务器将在 `http://localhost:3000` (默认) 运行。
 
-## 服务器设置
+5.  **上传新版本**:
+    -   在控制面板中，切换到 "上传新版本" 标签页。
+    -   填写版本号、版本说明，并选择EXE文件。
+    -   点击 "上传版本"。
 
-### 前提条件
+## API 参考
 
-- Node.js 14+ 和 npm
-- Windows、Linux 或 macOS 操作系统
-- 开放的网络端口（默认：3000和8080）
-
-### 安装步骤
-
-1. **下载代码**：
-   ```
-   git clone https://github.com/laozig/Update.git
-   ```
-   或解压下载的压缩包
-
-2. **安装依赖**：
-   ```
-   cd server
-   npm install
-   ```
-
-3. **启动控制面板**：
-   ```
-   npm run ui
-   ```
-   或双击 `run.bat` 文件（Windows系统）
-
-4. **启动服务器**：
-   在控制面板中点击"启动服务器"按钮
-
-### 图形化控制面板
-
-系统提供了一个图形化控制面板，方便您启动和管理更新服务器：
-
-1. **启动控制面板**：
-   ```
-   npm run ui
-   ```
-   或双击 `run.bat` 文件
-
-2. **控制面板功能**：
-   - **服务器控制**：启动/停止更新服务器，查看服务器日志
-   - **上传新版本**：上传新版本的应用程序文件
-   - **版本管理**：查看已发布的所有版本
-
-3. **控制面板地址**：`http://localhost:8080`
-
-### 部署到生产环境
-
-#### 1. 服务器准备
-
-1. **安装Node.js**：
-   - 访问 [Node.js官网](https://nodejs.org/) 下载并安装Node.js 14+
-   - 验证安装：`node -v` 和 `npm -v`
-
-2. **部署代码**：
-   - 将整个`server`目录上传到服务器
-   - 或使用Git克隆仓库：`git clone https://github.com/laozig/Update.git`
-
-3. **安装依赖**：
-   ```
-   cd server
-   npm install --production
-   ```
-
-#### 2. 配置为系统服务
-
-##### 使用PM2（推荐）
-
-1. **安装PM2**：
-   ```
-   npm install -g pm2
-   ```
-
-2. **启动更新服务器**：
-   ```
-   pm2 start index.js --name "update-server"
-   ```
-
-3. **启动控制面板**（可选）：
-   ```
-   pm2 start server-ui.js --name "update-panel"
-   ```
-
-4. **设置开机自启**：
-   ```
-   pm2 startup
-   pm2 save
-   ```
-
-#### 3. 配置反向代理
-
-##### Nginx配置
-
-1. **安装Nginx**：
-   ```
-   sudo apt install nginx   # Debian/Ubuntu
-   sudo yum install nginx   # CentOS/RHEL
-   ```
-
-2. **创建配置文件**：
-   ```
-   sudo nano /etc/nginx/sites-available/update-server
-   ```
-
-3. **添加以下配置**：
-   ```
-   server {
-       listen 80;
-       server_name 103.97.179.230;
-
-       location / {
-           proxy_pass http://localhost:3000;
-           proxy_http_version 1.1;
-           proxy_set_header Upgrade $http_upgrade;
-           proxy_set_header Connection 'upgrade';
-           proxy_set_header Host $host;
-           proxy_cache_bypass $http_upgrade;
-       }
-   }
-   ```
-
-4. **启用站点**：
-   ```
-   sudo ln -s /etc/nginx/sites-available/update-server /etc/nginx/sites-enabled/
-   sudo nginx -t
-   sudo systemctl restart nginx
-   ```
-
-### 防火墙设置
-
-#### Windows防火墙
-
-1. **打开Windows防火墙设置**：
-   - 控制面板 > 系统和安全 > Windows防火墙
-
-2. **添加入站规则**：
-   - 点击"高级设置" > "入站规则" > "新建规则"
-   - 选择"端口" > "TCP" > 输入"3000,8080" > "允许连接" > 完成
-
-#### Linux防火墙（UFW）
-
-1. **安装UFW**（如果尚未安装）：
-   ```
-   sudo apt install ufw
-   ```
-
-2. **配置规则**：
-   ```
-   sudo ufw allow 22/tcp         # SSH（如果需要）
-   sudo ufw allow 80/tcp         # HTTP
-   sudo ufw allow 443/tcp        # HTTPS
-   sudo ufw allow 3000/tcp       # 更新服务器
-   sudo ufw allow 8080/tcp       # 控制面板（如果需要外部访问）
-   ```
-
-3. **启用防火墙**：
-   ```
-   sudo ufw enable
-   ```
-
-### 安全性配置
-
-#### 1. 添加基本认证
-
-##### 控制面板认证
-
-1. **修改server-ui.js**，添加基本认证：
-   ```javascript
-   // 在文件顶部添加
-   const basicAuth = require('express-basic-auth');
-   
-   // 在中间件部分添加
-   app.use(basicAuth({
-     users: { 'admin': 'your-password' },
-     challenge: true,
-     realm: 'Update Server Admin Panel',
-   }));
-   ```
-
-2. **安装依赖**：
-   ```
-   npm install express-basic-auth --save
-   ```
-
-##### API认证
-
-1. **修改index.js**，添加API密钥认证：
-   ```javascript
-   // 添加API密钥中间件
-   const API_KEY = 'your-secret-api-key';
-   
-   const apiKeyAuth = (req, res, next) => {
-     const apiKey = req.headers['x-api-key'];
-     if (apiKey && apiKey === API_KEY) {
-       next();
-     } else {
-       res.status(401).json({ error: '未授权访问' });
-     }
-   };
-   
-   // 在需要保护的路由上应用
-   app.post('/api/upload', apiKeyAuth, upload.single('file'), (req, res) => {
-     // 原有代码
-   });
-   ```
-
-## API详细参考
+基础 URL: `http://103.97.179.230:3000` (请根据你的服务器IP或域名修改)
 
 ### 1. 获取最新版本信息
 
-获取服务器上当前最新版本的应用程序信息。
+-   **URL**: `/api/version`
+-   **方法**: `GET`
+-   **描述**: 获取当前最新的版本信息。
+-   **成功响应 (200 OK)**:
+    ```json
+    {
+      "version": "1.0.1",
+      "releaseDate": "2024-07-27T12:00:00.000Z",
+      "downloadUrl": "/download/1.0.1",
+      "releaseNotes": "修复了一些bug，增加了新功能。",
+      "fileName": "app-1.0.1.exe"
+    }
+    ```
+-   **失败响应 (404 Not Found)**:
+    ```json
+    {
+      "error": "暂无版本信息"
+    }
+    ```
 
-**请求**:
-```
-GET /api/version
-```
+### 2. 下载最新版本
 
-**请求头**:
-- `Content-Type`: application/json
-- `x-api-key`: your-api-key（如果启用了认证）
+-   **URL**: `/download/latest`
+-   **方法**: `GET`
+-   **描述**: 下载最新版本的EXE文件。
+-   **成功响应**: 直接下载文件。
+-   **失败响应 (404 Not Found)**:
+    ```json
+    {
+      "error": "暂无版本可供下载"
+    }
+    // 或
+    {
+      "error": "文件 app-1.0.1.exe 不存在"
+    }
+    ```
 
-**参数**: 无
+### 3. 下载指定版本
 
-**响应**:
-- 状态码: 200 OK
-- 内容类型: application/json
+-   **URL**: `/download/:version` (例如: `/download/1.0.0`)
+-   **方法**: `GET`
+-   **描述**: 下载指定版本的EXE文件。
+-   **成功响应**: 直接下载文件。
+-   **失败响应 (404 Not Found)**:
+    ```json
+    {
+      "error": "版本 1.0.0 不存在"
+    }
+    // 或
+    {
+      "error": "文件 app-1.0.0.exe 不存在"
+    }
+    ```
 
-**响应体**:
-```json
-{
-  "version": "1.0.1",              // 版本号
-  "releaseDate": "2023-06-01T12:00:00.000Z",  // 发布日期
-  "downloadUrl": "/download/1.0.1",  // 下载地址
-  "releaseNotes": "修复了一些bug"     // 版本说明
-}
-```
+### 4. 上传新版本 (内部API，通过控制面板使用)
 
-**示例**:
-```
-curl -X GET http://103.97.179.230:3000/api/version
-```
+此API主要由Web控制面板使用，并受API密钥保护（如果已配置）。
 
-### 2. 上传新版本
+-   **URL**: `/api/upload`
+-   **方法**: `POST`
+-   **Headers**:
+    -   `x-api-key`: `your-secret-api-key` (在 `server/index.js` 中配置的API密钥)
+-   **Body (form-data)**:
+    -   `version` (string, required): 版本号 (例如: "1.0.1")
+    -   `releaseNotes` (string, optional): 版本说明
+    -   `file` (file, required): EXE应用程序文件
+-   **成功响应 (200 OK)**:
+    ```json
+    {
+      "message": "版本更新成功",
+      "version": {
+        "version": "1.0.1",
+        "releaseDate": "2024-07-27T12:00:00.000Z",
+        "downloadUrl": "/download/1.0.1",
+        "releaseNotes": "新版本说明",
+        "fileName": "app-1.0.1.exe"
+      }
+    }
+    ```
+-   **失败响应**:
+    -   `400 Bad Request`: 缺少版本号、文件，或版本已存在。
+    -   `401 Unauthorized`: API密钥无效或未提供。
+    -   `500 Internal Server Error`: 服务器内部错误。
 
-上传新版本的应用程序到服务器。
+## 控制面板 (`server-ui.js`)
 
-**请求**:
-```
-POST /api/upload
-```
+控制面板运行在 `http://localhost:8080` (默认)。
 
-**请求头**:
-- `Content-Type`: multipart/form-data
-- `x-api-key`: your-api-key（如果启用了认证）
+### 功能:
 
-**参数**:
-- `file`: (必填) 应用程序文件，二进制文件
-- `version`: (必填) 版本号，字符串，例如 "1.0.1"
-- `releaseNotes`: (可选) 版本说明，字符串
+-   **服务器控制**: 启动和停止主更新服务器 (`server/index.js`)。
+-   **日志查看**: 显示主更新服务器的实时日志。
+-   **版本上传**: 上传新的EXE文件，并指定版本号和版本说明。
+-   **版本管理**: 查看已上传的版本列表。
 
-**响应**:
-- 状态码: 200 OK
-- 内容类型: application/json
+### 安全:
 
-**响应体**:
-```json
-{
-  "message": "版本更新成功",
-  "version": {
-    "version": "1.0.1",
-    "releaseDate": "2023-06-01T12:00:00.000Z",
-    "downloadUrl": "/download/1.0.1",
-    "releaseNotes": "修复了一些bug"
-  }
-}
-```
+-   **基本认证**: 控制面板受基本HTTP认证保护。
+    -   默认用户名: `admin`
+    -   默认密码: `admin`
+    -   **重要**: 请在 `server/server-ui.js` 文件中修改 `users` 对象以更改凭据，例如：
+        ```javascript
+        // server/server-ui.js
+        // ...
+        app.use(basicAuth({
+          users: { 'your_username': 'your_strong_password' }, // 修改这里
+          challenge: true,
+          realm: 'UpdateServerAdminPanel',
+        }));
+        // ...
+        ```
 
-**示例**:
-```
-curl -X POST http://103.97.179.230:3000/api/upload \
-  -F "file=@path/to/your/app.exe" \
-  -F "version=1.0.1" \
-  -F "releaseNotes=修复了一些bug"
-```
+## 主更新服务器 (`server/index.js`)
 
-### 3. 下载最新版本
+主更新服务器运行在 `http://localhost:3000` (默认)。
 
-下载服务器上当前最新版本的应用程序。
+### 安全:
 
-**请求**:
-```
-GET /download/latest
-```
+-   **API密钥认证**: `/api/upload` 端点可以通过API密钥进行保护。
+    -   在 `server/index.js` 文件顶部配置 `API_KEY`。
+        ```javascript
+        // server/index.js
+        const API_KEY = 'your-super-secret-and-long-api-key'; // 修改或设置为空字符串以禁用
+        ```
+    -   如果 `API_KEY` 为空字符串或 `null`，则 `/api/upload` 端点将不进行API密钥检查（不推荐用于生产环境）。
+    -   客户端（如控制面板或其他上传工具）在请求时需要在Header中包含 `x-api-key`。
+-   **CORS**: 跨域资源共享已配置为允许来自控制面板 (`http://localhost:8080`) 和服务器自身 (`http://localhost:3000`) 以及生产环境IP (`http://103.97.179.230`) 的请求。如有需要，可在 `server/index.js` 中修改 `cors` 配置。
+-   **文件大小限制**: 上传文件默认限制为100MB，可在 `server/index.js` 和 `server/server-ui.js` 中的 `multer` 配置中调整。
 
-**响应**:
-- 状态码: 200 OK
-- 内容类型: application/octet-stream
-- 内容: 二进制文件数据
+## 部署到生产环境
 
-**示例**:
-```
-curl -X GET http://103.97.179.230:3000/download/latest -o latest.exe
-```
+### Windows服务器部署
 
-### 4. 下载指定版本
+1. **服务器准备**
+   - 确保服务器上已安装 Node.js 和 npm。
+   - 将项目文件上传到服务器。
 
-下载服务器上指定版本的应用程序。
+2. **配置**
+   - **修改IP/域名**: 在 `README.md` (API示例) 和 `server/index.js` (CORS配置) 中，将 `103.97.179.230` 替换为你的服务器实际IP地址或域名。
+   - **修改端口**: 如果需要，可以在 `server/index.js` (主服务器) 和 `server/server-ui.js` (控制面板) 中修改端口号。
+   - **安全凭据**:
+     - **控制面板认证**: 修改 `server/server-ui.js` 中的基本认证用户名和密码。
+     - **API密钥**: 在 `server/index.js` 中设置一个强 `API_KEY`。
 
-**请求**:
-```
-GET /download/{version}
-```
+3. **运行应用**
+   推荐使用进程管理器如 `pm2` 来保持应用在后台运行并自动重启。
 
-**路径参数**:
-- `version`: 要下载的版本号，例如 "1.0.1"
+   - **安装 pm2** (如果未安装):
+     ```bash
+     npm install pm2 -g
+     ```
+   - **启动主更新服务器**:
+     ```bash
+     pm2 start server/index.js --name update-server
+     ```
+   - **启动控制面板服务器**:
+     ```bash
+     pm2 start server/server-ui.js --name update-server-ui
+     ```
+   - **查看应用状态**:
+     ```bash
+     pm2 list
+     ```
+   - **查看日志**:
+     ```bash
+     pm2 logs update-server
+     pm2 logs update-server-ui
+     ```
+   - **保存pm2进程列表** (以便服务器重启后自动恢复):
+     ```bash
+     pm2 save
+     pm2 startup # (根据提示执行相应的命令)
+     ```
 
-**响应**:
-- 状态码: 200 OK
-- 内容类型: application/octet-stream
-- 内容: 二进制文件数据
+4. **防火墙配置**
+   确保服务器防火墙允许外部访问你配置的端口 (例如: 3000 和 8080)。
 
-**示例**:
-```
-curl -X GET http://103.97.179.230:3000/download/1.0.1 -o app-1.0.1.exe
-```
+   - **Windows 防火墙**:
+     - 打开 "高级安全 Windows Defender 防火墙"。
+     - 创建新的入站规则，允许 TCP 端口 3000 和 8080 (或你选择的端口)。
 
-## 客户端实现指南
+### Ubuntu服务器部署
 
-### 基本流程
+本项目提供了三种在Ubuntu服务器上部署的方式：
 
-客户端应用程序需要实现以下功能来支持自动更新：
+#### 方式一：使用脚本启动（推荐用于测试）
 
-1. **检查更新**：
-   - 调用 `/api/version` 获取最新版本信息
-   - 比较最新版本与当前版本
-   - 如果有新版本，提示用户更新
+1. **准备工作**
+   ```bash
+   # 创建版本文件
+   echo "[]" > server/version.json
+   
+   # 设置脚本权限
+   chmod 755 start-update-server.sh stop-update-server.sh
+   ```
 
-2. **下载更新**：
-   - 调用 `/download/latest` 或 `/download/{version}` 下载新版本
-   - 保存下载的文件到临时目录
+2. **启动和停止服务**
+   ```bash
+   # 启动服务器
+   ./start-update-server.sh
+   
+   # 停止服务器
+   ./stop-update-server.sh
+   ```
 
-3. **安装更新**：
-   - 运行下载的更新文件
-   - 退出当前应用程序
+#### 方式二：使用systemd服务（推荐用于生产环境）
 
-### 版本比较逻辑
+1. **编辑服务配置**
+   ```bash
+   # 编辑服务配置文件，修改实际部署路径
+   sudo nano update-server.service
+   # 将WorkingDirectory和User修改为实际值
+   ```
 
-系统使用标准的语义化版本比较逻辑，例如：
+2. **安装和启动服务**
+   ```bash
+   # 复制服务文件到systemd目录
+   sudo cp update-server.service /etc/systemd/system/
+   
+   # 重新加载systemd配置
+   sudo systemctl daemon-reload
+   
+   # 启用服务（开机自启）
+   sudo systemctl enable update-server
+   
+   # 启动服务
+   sudo systemctl start update-server
+   
+   # 检查服务状态
+   sudo systemctl status update-server
+   ```
 
-- 1.0.1 > 1.0.0
-- 1.1.0 > 1.0.9
-- 2.0.0 > 1.9.9
+#### 方式三：使用PM2进程管理器（适合Node.js应用）
 
-客户端应实现类似的版本比较逻辑，以正确判断是否需要更新。
+1. **安装PM2**
+   ```bash
+   sudo npm install -g pm2
+   ```
 
-### 文件命名约定
+2. **启动和管理应用**
+   ```bash
+   # 启动应用
+   pm2 start server/server-ui.js --name "update-server"
+   
+   # 设置开机自启
+   pm2 startup
+   pm2 save
+   
+   # 查看应用状态
+   pm2 status
+   
+   # 查看日志
+   pm2 logs update-server
+   ```
 
-上传到服务器的文件将被重命名为以下格式：
-```
-app-{version}.exe
-```
+3. **防火墙配置**
+   ```bash
+   sudo ufw allow 3000/tcp
+   sudo ufw allow 8080/tcp
+   sudo ufw enable
+   sudo ufw status
+   ```
 
-例如：
-- app-1.0.0.exe
-- app-1.0.1.exe
-- app-2.0.0.exe
+更多详细的部署说明，请参考 `deploy-instructions.md` 文件。
 
-## 常见问题
+## 常见问题 (FAQ)
 
-### 1. 服务器无法启动
+-   **Q: 如何修改控制面板的登录凭据?**
+    A: 编辑 `server/server-ui.js` 文件，找到 `app.use(basicAuth(...))` 部分，修改 `users` 对象中的用户名和密码。
 
-**可能原因**：
-- 端口被占用
-- Node.js未正确安装
-- 依赖包未安装
+-   **Q: 如何修改API密钥?**
+    A: 编辑 `server/index.js` 文件，修改顶部的 `API_KEY` 常量的值。如果设置为空字符串，则禁用API密钥检查。
 
-**解决方法**：
-- 检查端口是否被其他程序占用：`netstat -ano | findstr 3000`
-- 验证Node.js安装：`node -v`
-- 重新安装依赖：`npm install`
+-   **Q: 上传文件大小有限制吗?**
+    A: 是的，默认为100MB。可以在 `server/index.js` 和 `server/server-ui.js` 中的 `multer` 配置里修改 `fileSize`限制。
 
-### 2. 上传文件失败
+-   **Q: 控制面板和主服务器必须在同一台机器上运行吗?**
+    A: 不是必须的，但当前实现是这样设计的。如果分开部署，需要适当配置CORS策略和API调用地址。
 
-**可能原因**：
-- 文件大小超过限制
-- uploads目录权限不足
-- 服务器磁盘空间不足
+-   **Q: 如果服务器重启，上传的文件和版本信息会丢失吗?**
+    A: 上传的EXE文件存储在 `server/uploads/` 目录中，版本信息存储在 `server/version.json` 文件中。只要这些文件没有被删除，重启服务器后数据依然存在。
 
-**解决方法**：
-- 检查文件大小限制设置
-- 确保uploads目录有写入权限
-- 检查服务器磁盘空间
+-   **Q: 如何备份版本数据?**
+    A: 定期备份 `server/uploads/` 目录和 `server/version.json` 文件。
 
-### 3. 客户端无法连接服务器
+-   **Q: 如何在Ubuntu服务器上后台运行更新服务器?**
+    A: 可以使用提供的 `start-update-server.sh` 脚本，或者使用systemd服务，或者使用PM2进程管理器。详情参见部署说明。
 
-**可能原因**：
-- 服务器未启动
-- 防火墙阻止连接
-- 网络问题
+---
 
-**解决方法**：
-- 确认服务器状态
-- 检查防火墙设置
-- 验证网络连接
-
-## 注意事项
-
-- 确保您的服务器具有足够的存储空间来存储所有版本的应用程序
-- 考虑实现用户认证以保护上传API
-- 在生产环境中使用HTTPS以确保安全下载
-- 考虑添加数字签名验证以确保更新的真实性
-- 服务器重启后会自动加载最后保存的版本信息
-- 定期备份版本信息文件和上传的应用程序文件
-- 考虑实现版本回滚功能，以应对紧急情况 
+*最后更新: 2024-06-02* 
