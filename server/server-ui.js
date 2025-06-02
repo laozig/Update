@@ -94,7 +94,8 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
-    cb(null, `app-${req.body.version}.exe`);
+    // 先保存为原始文件名，后面再重命名
+    cb(null, file.originalname);
   }
 });
 
@@ -311,12 +312,37 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
       return res.status(400).json({ error: `版本 ${version} 已存在` });
     }
 
+    // 获取原始文件名并添加版本号
+    const originalFileName = req.file.originalname;
+    // 在文件名和扩展名之间插入版本号，使用下划线连接
+    const lastDotIndex = originalFileName.lastIndexOf('.');
+    let newFileName;
+    let originalNameWithoutExt;
+    
+    if (lastDotIndex !== -1) {
+      // 有扩展名的情况
+      originalNameWithoutExt = originalFileName.substring(0, lastDotIndex);
+      const extension = originalFileName.substring(lastDotIndex);
+      newFileName = `${originalNameWithoutExt}_${version}${extension}`;
+    } else {
+      // 没有扩展名的情况
+      originalNameWithoutExt = originalFileName;
+      newFileName = `${originalFileName}_${version}`;
+    }
+    
+    // 重命名文件
+    const oldPath = req.file.path;
+    const newPath = path.join(path.dirname(oldPath), newFileName);
+    
+    fs.renameSync(oldPath, newPath);
+
     const newVersionInfo = {
       version,
       releaseDate: new Date().toISOString(),
-      downloadUrl: `/download/${projectId}/${version}`,
+      downloadUrl: `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}/download/${projectId}/${version}`,
       releaseNotes: releaseNotes || `版本 ${version} 更新`,
-      fileName: `app-${version}.exe`
+      fileName: newFileName,
+      originalFileName: originalNameWithoutExt
     };
     
     versions.push(newVersionInfo);
@@ -334,7 +360,7 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
     });
     
     saveVersions(projectId, versions);
-    serverLogs.push(`项目 ${projectId} 的新版本 ${version} 已上传: ${newVersionInfo.fileName}`);
+    serverLogs.push(`项目 ${projectId} 的新版本 ${version} 已上传: ${newFileName}`);
     res.json({ message: '版本上传成功', version: newVersionInfo });
 
   } catch (err) {
@@ -460,4 +486,4 @@ function showAlert(type, message) {
     successAlert.style.display = 'none';
     errorAlert.style.display = 'none';
   }, 5000);
-} 
+}
