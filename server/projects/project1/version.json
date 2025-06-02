@@ -1,5 +1,12 @@
 [
   {
+    "version": "22222222",
+    "releaseDate": "2025-06-02T10:13:30.817Z",
+    "downloadUrl": "/download/project1/22222222",
+    "releaseNotes": "版本 22222222 更新",
+    "fileName": "app-22222222.exe"
+  },
+  {
     "version": "12323",
     "releaseDate": "2025-06-02T10:08:47.906Z",
     "downloadUrl": "/download/project1/12323",
