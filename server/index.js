@@ -96,9 +96,8 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
-    const version = req.body.version || 'unknown';
-    const originalName = file.originalname.replace(/\.exe$/, '');
-    cb(null, `${originalName}-${version}.exe`);
+    // 先保存为原始文件名，后面再重命名
+    cb(null, file.originalname);
   }
 });
 
@@ -210,12 +209,23 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
       return res.status(400).json({ error: `版本 ${version} 已存在` });
     }
 
+    // 获取原始文件名并添加版本号
+    const originalFileName = req.file.originalname;
+    const fileNameWithoutExt = originalFileName.replace(/\.exe$/i, '');
+    const newFileName = `${fileNameWithoutExt}-${version}.exe`;
+    
+    // 重命名文件
+    const oldPath = req.file.path;
+    const newPath = path.join(path.dirname(oldPath), newFileName);
+    
+    fs.renameSync(oldPath, newPath);
+
     const newVersionInfo = {
       version,
       releaseDate: new Date().toISOString(),
       downloadUrl: `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}/download/${projectId}/${version}`,
       releaseNotes: releaseNotes || `版本 ${version} 更新`,
-      fileName: req.file.originalname.replace(/\.exe$/, '') + `-${version}.exe`
+      fileName: newFileName
     };
     
     versions.push(newVersionInfo);
