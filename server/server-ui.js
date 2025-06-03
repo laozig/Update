@@ -426,19 +426,20 @@ app.post('/api/projects', (req, res) => {
       return res.status(401).json({ error: '未认证' });
     }
     
-    const { name, description } = req.body;
+    const { id: customId, name, description } = req.body;
     
     if (!name) {
       return res.status(400).json({ error: '项目名称不能为空' });
     }
     
-    const id = name.replace(/\s+/g, '-').toLowerCase();
+    // 使用前端提供的ID或根据名称生成ID
+    const id = customId || name.replace(/\s+/g, '-').toLowerCase();
     const timestamp = Date.now();
     const apiKey = `api-key-${id}-${timestamp}`;
     
     // 检查项目ID是否已存在
     if (config.projects.some(p => p.id === id)) {
-      return res.status(400).json({ error: '项目ID已存在，请使用不同的项目名称' });
+      return res.status(400).json({ error: '项目ID已存在，请使用不同的项目ID或名称' });
     }
     
     const newProject = {
@@ -449,6 +450,9 @@ app.post('/api/projects', (req, res) => {
       icon: 'favicon.ico',
       owner: req.user.username // 自动设置项目所有者为当前用户
     };
+    
+    // 调试日志
+    console.log('创建新项目:', newProject);
     
     config.projects.push(newProject);
     saveConfig();
@@ -461,9 +465,8 @@ app.post('/api/projects', (req, res) => {
     // 初始化空的版本文件
     saveVersions(id, []);
     
-    // 返回不含敏感信息的项目数据
-    const { apiKey: _, ...safeProject } = newProject;
-    res.status(201).json(safeProject);
+    // 返回完整项目数据，包括API密钥
+    res.status(201).json(newProject);
   } catch (error) {
     console.error('创建项目错误:', error);
     res.status(500).json({ error: '服务器内部错误' });
