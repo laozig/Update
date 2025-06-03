@@ -25,7 +25,9 @@ A simple, universal, multi-project application auto-update server based on Node.
 
 ## 2. Features
 
-*   **Multi-Project Support**: Manage updates for multiple different applications করোনাously through project IDs and API keys.
+*   **Multi-User Support**: Support for user registration and login, where each user can only manage their own created projects.
+*   **Permission Control**: Administrators can view and manage all projects, while regular users can only manage their own projects.
+*   **Multi-Project Support**: Manage updates for multiple different applications through project IDs and API keys.
 *   **Version Control**: Easily upload and manage different versions of applications, with support for release notes.
 *   **Web Control Panel**: Graphical interface for:
     *   Starting/Stopping the core API update service.
@@ -35,22 +37,45 @@ A simple, universal, multi-project application auto-update server based on Node.
     *   Viewing and resetting project API keys.
 *   **API Driven**: Clear API endpoints for client applications to check for updates, download files; and for (protected) admin tools to upload new versions.
 *   **Easy to Deploy**: Can run as a standalone Node.js application. PM2 is recommended for production environment management for process daemonization and log management.
-*   **Custom Configuration**: Flexibly configure server ports, IP/domain, admin credentials, and specific settings for each project via `server/config.json`.
+*   **Custom Configuration**: Flexibly configure server ports, IP/domain, user accounts, and specific settings for each project via `server/config.json`.
 *   **Filename Encoding Handling**: Optimized filename handling logic to correctly support non-ASCII character filenames, including Chinese.
 *   **Log Management**: The control panel service records operation logs to `server.log` and provides log viewing functionality. The main API service outputs logs to the console.
+*   **JWT Authentication**: Uses JWT tokens for user authentication, enhancing security.
 
-## 3. System Architecture and Components
+## 3. Latest Feature Updates
+
+### 3.1. Multi-User System (June 2024)
+
+*   **User Registration**: New user registration functionality, supporting the creation of personal accounts.
+*   **User Login**: Secure authentication using JWT tokens.
+*   **Project Ownership**: Each project has a clear owner, ensuring data isolation.
+*   **Permission Control**: 
+    *   Administrators can view and manage all projects
+    *   Regular users can only view and manage their own created projects
+*   **User Interface Improvements**:
+    *   New login and registration pages
+    *   Display of current logged-in user information
+    *   Support for logout functionality
+
+### 3.2. API Key Management Optimization
+
+*   **Automatic Generation**: Automatically generate secure API keys when creating projects
+*   **Reset Functionality**: Support for one-click reset of project API keys
+*   **Visual Management**: Intuitive display of API keys in project settings
+*   **Permission Protection**: Only project owners and administrators can view and reset API keys
+
+## 4. System Architecture and Components
 
 *   **Core API Service (`server/index.js`)**: Handles client requests for version checks (`/api/version/:projectId`), file downloads (`/download/...`), and (authenticated) version uploads (`/api/upload/:projectId`). Listens on port `3000` by default.
 *   **Web Control Panel Service (`server/server-ui.js`)**: Provides a web-based management interface. Responsible for project management, version uploads (by calling the core API or internal logic), API service start/stop control, log viewing, etc. Listens on port `8080` by default.
-*   **Configuration File (`server/config.json`)**: Stores system-level configurations (like service ports, admin account) and detailed information for all projects (ID, name, API key, icon, etc.).
+*   **Configuration File (`server/config.json`)**: Stores system-level configurations (like service ports, user accounts) and detailed information for all projects (ID, name, API key, icon, etc.).
 *   **Project Data Storage (`server/projects/`)**: Each project has a subdirectory named after its `projectId` under this directory, containing:
     *   `version.json`: Version history and metadata for the project.
     *   `uploads/`: Actual update files uploaded for the project.
 
-## 4. Deployment Guide
+## 5. Deployment Guide
 
-### 4.1. Server Environment Preparation
+### 5.1. Server Environment Preparation
 *   **Operating System**: Linux is recommended (e.g., Ubuntu, CentOS, Debian).
 *   **Node.js**: Version 14.x or higher.
     ```bash
@@ -61,7 +86,7 @@ A simple, universal, multi-project application auto-update server based on Node.
     If not installed, it can be installed via `nvm` (Node Version Manager) or the system package manager.
 *   **Git**: For cloning the code.
 
-### 4.2. Deployment Steps
+### 5.2. Deployment Steps
 
 1.  **Clone or Update Code**:
     ```bash
@@ -112,7 +137,7 @@ A simple, universal, multi-project application auto-update server based on Node.
 4.  **Directory Permissions** (if needed):
     Ensure the user running the Node.js service has write permissions for the `server/projects/` directory to automatically create project subdirectories, `version.json`, and `uploads` folders.
 
-### 4.3. Starting the Services
+### 5.3. Starting the Services
 
 You need to start two Node.js processes: the API service and the control panel service.
 
@@ -153,7 +178,7 @@ You need to start two Node.js processes: the API service and the control panel s
     5.  View PM2 managed processes: `pm2 list`
     6.  View logs: `pm2 logs update-api-server` or `pm2 logs update-control-panel`
 
-### 4.4. Stopping the Services
+### 5.4. Stopping the Services
 
 *   **Directly using Node**: Press `Ctrl+C` in the corresponding terminal.
 *   **Using PM2**:
@@ -163,12 +188,12 @@ You need to start two Node.js processes: the API service and the control panel s
     # Or pm2 delete update-api-server update-control-panel to remove from PM2 list
     ```
 
-### 4.5. Accessing the Control Panel
+### 5.5. Accessing the Control Panel
 
 *   Open in browser: `http://<YOUR_SERVER_IP_OR_DOMAIN>:<adminPort>` (e.g., `http://yourserver.com:8080`).
 *   Log in using the `adminUsername` and `adminPassword` set in `server/config.json`.
 
-## 5. Main API Endpoints
+## 6. Main API Endpoints
 
 (Assuming API service runs at `http://<serverIp>:<port>`)
 
@@ -185,14 +210,14 @@ You need to start two Node.js processes: the API service and the control panel s
 *   `GET /api/projects`:
     *   Description: (Used by control panel) Get a list of all configured projects (without API keys).
 
-## 6. Detailed Documentation
+## 7. Detailed Documentation
 
 For more in-depth technical details and advanced configurations, please refer to the following documents:
 
 *   **[Deployment Instructions](./deploy-instructions.en.md)**: Detailed server deployment steps, firewall configuration, best practices for using PM2, and reverse proxy (e.g., Nginx) configuration suggestions.
 *   **[Multi-Project Design](./multi-project-design.en.md)**: In-depth explanation of how the server is architected to support and isolate data and update processes for multiple projects.
 
-## 7. Directory Structure Overview
+## 8. Directory Structure Overview
 
 ```
 Update/
@@ -220,9 +245,9 @@ Update/
 └── multi-project-design.en.md  # Multi-project architecture design (English)
 ```
 
-## 8. Configuration Details
+## 9. Configuration Details
 
-### 8.1. `server/config.json`
+### 9.1. `server/config.json`
 
 This is the core configuration file that controls server behavior and project definitions.
 
@@ -239,7 +264,7 @@ This is the core configuration file that controls server behavior and project de
     *   `adminUsername` (String): Control panel login username.
     *   `adminPassword` (String): Control panel login password. **Please change to a strong password**.
 
-### 8.2. `server/projects/[projectId]/version.json`
+### 9.2. `server/projects/[projectId]/version.json`
 
 Version history file for each individual project, a JSON array where each object represents a version.
 
@@ -267,7 +292,7 @@ Version history file for each individual project, a JSON array where each object
 *   `fileName` (String): Full filename of this version as stored on the server (includes version number and extension).
 *   `originalFileName` (String): Original base filename determined at upload, without version number and extension.
 
-## 9. Logging and Monitoring
+## 10. Logging and Monitoring
 
 *   **API Service (`server/index.js`)**: Primarily outputs logs to the standard console (stdout/stderr). If managed by PM2, PM2 will automatically collect these logs.
 *   **Control Panel Service (`server/server-ui.js`)**: 
@@ -276,7 +301,7 @@ Version history file for each individual project, a JSON array where each object
     *   The control panel interface provides a log viewing feature, displaying the content of `server.log`.
 *   **Service Status**: The control panel displays the running status of the core API service (detected by attempting to connect to the API port).
 
-## 10. Security Recommendations
+## 11. Security Recommendations
 
 *   **Strong Credentials**: Always set a strong password for the control panel admin (`server.adminPassword`).
 *   **API Keys**: Generate and use unique, hard-to-guess API keys for each project. Keep them confidential; do not hardcode them into publicly distributed client versions.
@@ -286,7 +311,7 @@ Version history file for each individual project, a JSON array where each object
 *   **Input Validation**: Server-side code includes some basic validation for input parameters.
 *   **Backups**: Regularly back up the `server/config.json` file and the entire `server/projects/` directory.
 
-## 11. Frequently Asked Questions (FAQ)
+## 12. Frequently Asked Questions (FAQ)
 
 *   **Q: Cannot access the control panel?**
     *   A: Check if `server/server-ui.js` has started. Verify the `adminPort` in `server/config.json` is correct. Check if the server firewall allows inbound connections on this port. Look for errors in the `server-ui.js` console output or PM2 logs.
@@ -297,10 +322,10 @@ Version history file for each individual project, a JSON array where each object
 *   **Q: Chinese filenames appear garbled?**
     *   A: The latest version includes decoding optimizations for Chinese filenames. If issues persist, ensure you are using the latest code and check how the client application encodes filenames during upload. Try again after clearing old garbled files and version entries.
 
-## 12. Contributions
+## 13. Contributions
 
 Contributions via Pull Requests or Issues to help improve this project are welcome!
 
-## 13. License
+## 14. License
 
 [MIT](LICENSE) 
