@@ -407,9 +407,8 @@ app.get('/api/projects/:id', (req, res) => {
       return res.status(403).json({ error: '没有权限访问此项目' });
     }
     
-    // 返回不含敏感信息的项目数据
-    const { apiKey, ...safeProject } = project;
-    res.json(safeProject);
+    // 返回项目数据，包括API密钥
+    res.json(project);
   } catch (error) {
     console.error('获取项目详情错误:', error);
     res.status(500).json({ error: '服务器内部错误' });
