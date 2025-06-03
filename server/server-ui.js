@@ -390,9 +390,12 @@ app.get('/api/projects/:id', (req, res) => {
     }
     
     const { id } = req.params;
+    console.log(`获取项目详情请求: ${id}, 用户: ${req.user.username}`);
+    
     const project = config.projects.find(p => p.id === id);
     
     if (!project) {
+      console.log(`项目不存在: ${id}`);
       return res.status(404).json({ error: '项目不存在' });
     }
     
@@ -404,7 +407,15 @@ app.get('/api/projects/:id', (req, res) => {
     
     // 检查权限：只有管理员或项目所有者可以访问
     if (req.user.role !== 'admin' && project.owner !== req.user.username) {
+      console.log(`权限拒绝: 用户 ${req.user.username} 尝试访问项目 ${id}`);
       return res.status(403).json({ error: '没有权限访问此项目' });
+    }
+    
+    // 确保项目有apiKey字段
+    if (!project.apiKey) {
+      console.log(`项目 ${id} 没有API密钥，正在生成...`);
+      project.apiKey = `api-key-${id}-${Date.now()}`;
+      saveConfig();
     }
     
     // 调试日志
@@ -548,21 +559,32 @@ app.delete('/api/projects/:id', (req, res) => {
 
 // 重置项目API密钥
 app.post('/api/projects/:projectId/reset-key', (req, res) => {
-  const { projectId } = req.params;
+  try {
+    const { projectId } = req.params;
+    console.log(`重置API密钥请求: ${projectId}, 用户: ${req.user ? req.user.username : '未认证'}`);
 
-  const project = config.projects.find(p => p.id === projectId);
-  if (!project) {
-    return res.status(404).json({ error: '项目不存在' });
-  }
-  
-  // 检查权限：只有项目所有者或管理员可以重置API密钥
-  if (req.user && (req.user.role === 'admin' || project.owner === req.user.username)) {
-    project.apiKey = `api-key-${projectId}-${Date.now()}`;
-    saveConfig();
+    const project = config.projects.find(p => p.id === projectId);
+    if (!project) {
+      console.log(`项目不存在: ${projectId}`);
+      return res.status(404).json({ error: '项目不存在' });
+    }
+    
+    // 检查权限：只有项目所有者或管理员可以重置API密钥
+    if (req.user && (req.user.role === 'admin' || project.owner === req.user.username)) {
+      const newApiKey = `api-key-${projectId}-${Date.now()}`;
+      console.log(`为项目 ${projectId} 生成新的API密钥: ${newApiKey}`);
+      
+      project.apiKey = newApiKey;
+      saveConfig();
 
-    res.json({ apiKey: project.apiKey });
-  } else {
-    res.status(403).json({ error: '没有权限重置此项目的API密钥' });
+      res.json({ apiKey: project.apiKey });
+    } else {
+      console.log(`权限拒绝: 用户尝试重置项目 ${projectId} 的API密钥`);
+      res.status(403).json({ error: '没有权限重置此项目的API密钥' });
+    }
+  } catch (error) {
+    console.error('重置API密钥错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
   }
 });
 
