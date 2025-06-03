@@ -1,25 +1,71 @@
 # Node.js
 node_modules/
-npm-debug.log
-yarn-debug.log
-yarn-error.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+package-lock.json
 
 # 项目文件
-server/projects/*/uploads/
+server/projects/*/uploads/*
+server/projects/*/version.json
 *.exe
-*.log
-logs/
-server.log
+*.zip
+*.dmg
+*.pkg
+*.msi
+*.deb
+*.rpm
+*.appimage
 
-# 配置文件
+# 日志文件
+logs/
+*.log
+server.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# 配置和敏感信息
 server/config.json
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
 
-# IDE
+# Docker相关
+/Dockerfile
+/docker-compose.yml
+/docker-compose.override.yml
+/.dockerignore
+# 保留Docker文档和配置示例
+!/docker/
+!/docker/README.md
+!/docker/INSTALL.md
+!/docker/nginx.conf
+!/docker/Dockerfile
+!/docker/Dockerfile.multistage
+!/docker/docker-compose.yml
+!/docker/docker-compose.prod.yml
+!/docker/docker-compose.override.example.yml
+!/docker/env.example
+!/docker/.dockerignore
+
+# 临时文件和缓存
+.temp/
+.tmp/
+.cache/
+temp/
+tmp/
+*.tmp
+*.temp
+
+# IDE和编辑器
 .idea/
 .vscode/
 *.suo
@@ -27,31 +73,90 @@ server/config.json
 *.njsproj
 *.sln
 *.sw?
+*.sublime-*
+.history/
+.project
+.classpath
+.settings/
+*.code-workspace
+.ionide/
 
-# 系统文件
+# 操作系统文件
 .DS_Store
 Thumbs.db
 desktop.ini
-
-# 临时文件
-*.tmp
-*.temp
-temp/
-tmp/
+ehthumbs.db
+$RECYCLE.BIN/
+Icon?
+._*
 
 # 编译输出
 dist/
 build/
 out/
+public/dist/
+.next/
+.nuxt/
+.vuepress/dist
+.serverless/
+.fusebox/
+.dynamodb/
 
 # 调试文件
 debug/
 *.debug
 
-# 其他
+# 备份文件
 *.bak
-*.cache
-.settings/
+*.backup
+*~
+*.swp
+*.swo
+server/config.json.bak
+
+# 测试覆盖率报告
+coverage/
+.nyc_output/
+.jest/
+.coverage/
+
+# 依赖目录
+jspm_packages/
+bower_components/
+.pnp/
+.pnp.js
+
+# TypeScript
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# 保留空目录的占位文件
+!.gitkeep
+!server/projects/*/.gitkeep
+!server/projects/*/uploads/.gitkeep
+
+# 保留server/public目录中的所有文件
+!server/public/
+!server/public/*
+!server/public/**/*
+
+# 保留图标文件
+!server/public/favicon.ico
+!server/public/*.ico
+
+# 运行时数据
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# 其他
+.vercel
+.now
+.netlify
+.firebase/
+.grunt
+.lock-wscript
 
 # 上传的应用程序文件
 server/uploads/
@@ -110,7 +215,7 @@ coverage
 .grunt
 
 # Bower dependency directory (https://bower.io/)
-bower_components
+bower_components/
 
 # node-waf configuration
 .lock-wscript
@@ -142,9 +247,6 @@ jspm_packages/
 
 # Output of 'npm pack'
 *.tgz
-
-# Yarn Integrity file
-.yarn-integrity
 
 # dotenv environment variables file
 .env
