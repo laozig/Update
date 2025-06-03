@@ -164,13 +164,22 @@ jspm_packages/
 
 # Gatsby files
 .cache/
-public
+# public
 
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
 
 # Oracle JET specific files
 web/
+
+# 保留server/public目录中的所有文件
+!server/public/
+!server/public/*
+!server/public/**/*
+
+# 保留图标文件
+!server/public/favicon.ico
+!server/public/1.ico
 
 # Environment files
 .env
@@ -211,10 +220,6 @@ server/projects/*/uploads/*
 
 # Zip archives for releases
 *.zip
-
-# 保留图标文件
-!server/public/favicon.ico
-!server/public/1.ico
 
 # 临时生成的文件
 .temp/
