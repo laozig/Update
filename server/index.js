@@ -3,19 +3,22 @@ const cors = require('cors');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// JWT密钥，与控制面板使用相同的密钥
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
 
 // 加载系统配置
 const configPath = path.join(__dirname, 'config.json');
 let config = {
   projects: [],
+  users: [],
   server: {
     port: 3000,
-    adminPort: 8080,
-    adminUsername: 'admin',
-    adminPassword: 'admin'
+    adminPort: 8080
   }
 };
 
@@ -39,6 +42,36 @@ const saveConfig = () => {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
   } catch (err) {
     console.error('保存配置失败:', err);
+  }
+};
+
+// JWT认证中间件
+const authenticateJWT = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  
+  if (authHeader) {
+    const token = authHeader.split(' ')[1];
+    
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+      if (err) {
+        return res.status(403).json({ error: '无效或过期的令牌' });
+      }
+      
+      req.user = user;
+      next();
+    });
+  } else {
+    // 对于公共API，如版本检查，不需要认证
+    if (req.path.startsWith('/api/version/')) {
+      return next();
+    }
+    
+    // 对于下载API，需要进一步检查项目是否公开
+    if (req.path.startsWith('/download/')) {
+      return next();
+    }
+    
+    res.status(401).json({ error: '需要认证' });
   }
 };
 
@@ -84,6 +117,7 @@ app.use(cors({
 // 中间件
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(authenticateJWT);
 
 // 配置文件上传
 const storage = multer.diskStorage({
@@ -192,8 +226,22 @@ console.log(`服务器配置已加载，域名: ${config.server.serverIp || 'upd
 
 // 获取项目列表
 app.get('/api/projects', (req, res) => {
+  // 根据用户角色过滤项目
+  let filteredProjects;
+  
+  if (req.user && req.user.role === 'admin') {
+    // 管理员可以看到所有项目
+    filteredProjects = config.projects;
+  } else if (req.user) {
+    // 普通用户只能看到自己的项目
+    filteredProjects = config.projects.filter(p => p.owner === req.user.username);
+  } else {
+    // 未认证用户不能看到任何项目
+    return res.status(401).json({ error: '未认证' });
+  }
+  
   // 返回项目列表，但不包含敏感信息如apiKey
-  const safeProjects = config.projects.map(({ id, name, description, icon }) => ({
+  const safeProjects = filteredProjects.map(({ id, name, description, icon }) => ({
     id, name, description, icon
   }));
   res.json(safeProjects);
@@ -292,9 +340,16 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
   }
 });
 
-// 下载最新版本 (公开)
+// 下载最新版本
 app.get('/download/:projectId/latest', (req, res) => {
   const { projectId } = req.params;
+  
+  // 检查项目是否存在
+  const project = config.projects.find(p => p.id === projectId);
+  if (!project) {
+    return res.status(404).json({ error: '项目不存在' });
+  }
+  
   const versions = loadVersions(projectId);
   
   if (versions.length === 0) {
@@ -327,9 +382,16 @@ app.get('/download/:projectId/latest', (req, res) => {
   }
 });
 
-// 下载指定版本 (公开)
+// 下载指定版本
 app.get('/download/:projectId/:version', (req, res) => {
   const { projectId, version } = req.params;
+  
+  // 检查项目是否存在
+  const project = config.projects.find(p => p.id === projectId);
+  if (!project) {
+    return res.status(404).json({ error: '项目不存在' });
+  }
+  
   const versions = loadVersions(projectId);
   const versionInfo = versions.find(v => v.version === version);
 

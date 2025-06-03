@@ -4,8 +4,9 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const open = require('open');
 const multer = require('multer');
-const basicAuth = require('express-basic-auth');
 const net = require('net');
+const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 
 // 控制面板应用
 const app = express();
@@ -15,15 +16,26 @@ let serverRunning = false;
 let serverLogs = [];
 const MAX_LOGS = 1000; // 最大保存日志行数
 
+// JWT密钥
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
+const TOKEN_EXPIRY = '24h';
+
 // 加载系统配置
 const configPath = path.join(__dirname, 'config.json');
 let config = {
   projects: [],
+  users: [
+    {
+      username: 'admin',
+      password: 'admin',
+      role: 'admin',
+      email: 'admin@example.com',
+      createdAt: new Date().toISOString()
+    }
+  ],
   server: {
     port: 3000,
     adminPort: 8080,
-    adminUsername: 'admin',
-    adminPassword: 'admin',
     serverIp: '103.97.179.230'
   }
 };
@@ -34,6 +46,20 @@ const loadConfig = () => {
     if (fs.existsSync(configPath)) {
       const data = fs.readFileSync(configPath, 'utf8');
       config = JSON.parse(data);
+      
+      // 确保users数组存在
+      if (!config.users) {
+        config.users = [
+          {
+            username: 'admin',
+            password: 'admin',
+            role: 'admin',
+            email: 'admin@example.com',
+            createdAt: new Date().toISOString()
+          }
+        ];
+        saveConfig();
+      }
     } else {
       saveConfig();
     }
@@ -76,12 +102,53 @@ const addLog = (message) => {
 loadConfig();
 addLog('控制面板服务启动');
 
-// 基本认证配置
-app.use(basicAuth({
-  users: { [config.server.adminUsername]: config.server.adminPassword },
-  challenge: true,
-  realm: 'UpdateServerAdminPanel',
-}));
+// 中间件
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// 认证中间件
+const authenticateJWT = (req, res, next) => {
+  // 登录和注册页面不需要认证
+  if (req.path === '/api/login' || req.path === '/api/register' || 
+      req.path === '/login.html' || req.path === '/register.html') {
+    return next();
+  }
+  
+  // 静态资源不需要认证
+  if (req.path.match(/\.(css|js|ico|png|jpg|jpeg|gif|svg)$/)) {
+    return next();
+  }
+  
+  const authHeader = req.headers.authorization;
+  
+  if (authHeader) {
+    const token = authHeader.split(' ')[1];
+    
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+      if (err) {
+        return res.status(403).json({ error: '无效或过期的令牌' });
+      }
+      
+      req.user = user;
+      next();
+    });
+  } else {
+    // 如果没有认证头，重定向到登录页面
+    if (req.path === '/' || req.path === '/index.html') {
+      return res.redirect('/login.html');
+    }
+    
+    // API请求返回401
+    if (req.path.startsWith('/api/')) {
+      return res.status(401).json({ error: '需要认证' });
+    }
+    
+    next();
+  }
+};
+
+app.use(authenticateJWT);
 
 // 配置文件上传
 const storage = multer.diskStorage({
@@ -124,11 +191,6 @@ const upload = multer({
     fileSize: 100 * 1024 * 1024, // 100MB
   }
 });
-
-// 静态文件
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // 版本信息管理
 const getVersionFilePath = (projectId) => {
@@ -183,62 +245,226 @@ const saveVersions = (projectId, versions) => {
   }
 };
 
+// 用户认证路由
+
+// 登录
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  
+  if (!username || !password) {
+    return res.status(400).json({ error: '用户名和密码不能为空' });
+  }
+  
+  const user = config.users.find(u => u.username === username && u.password === password);
+  
+  if (user) {
+    // 生成JWT令牌
+    const token = jwt.sign(
+      { 
+        username: user.username, 
+        role: user.role,
+        email: user.email
+      }, 
+      JWT_SECRET, 
+      { expiresIn: TOKEN_EXPIRY }
+    );
+    
+    addLog(`用户 ${username} 登录成功`);
+    res.json({ token });
+  } else {
+    res.status(401).json({ error: '用户名或密码错误' });
+  }
+});
+
+// 注册
+app.post('/api/register', (req, res) => {
+  const { username, email, password } = req.body;
+  
+  // 验证输入
+  if (!username || !email || !password) {
+    return res.status(400).json({ error: '所有字段都是必需的' });
+  }
+  
+  // 验证用户名格式
+  const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+  if (!usernameRegex.test(username)) {
+    return res.status(400).json({ error: '用户名长度为3-20个字符，只能包含字母、数字和下划线' });
+  }
+  
+  // 验证密码长度
+  if (password.length < 6) {
+    return res.status(400).json({ error: '密码长度至少为6个字符' });
+  }
+  
+  // 检查用户名是否已存在
+  if (config.users.some(u => u.username === username)) {
+    return res.status(400).json({ error: '用户名已被使用' });
+  }
+  
+  // 检查邮箱是否已存在
+  if (config.users.some(u => u.email === email)) {
+    return res.status(400).json({ error: '邮箱已被使用' });
+  }
+  
+  // 创建新用户
+  const newUser = {
+    username,
+    email,
+    password, // 注意：实际应用中应该哈希密码
+    role: 'user', // 默认角色为普通用户
+    createdAt: new Date().toISOString()
+  };
+  
+  config.users.push(newUser);
+  saveConfig();
+  
+  addLog(`新用户注册: ${username} (${email})`);
+  res.status(201).json({ message: '注册成功' });
+});
+
+// 获取当前用户信息
+app.get('/api/user', (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: '未认证' });
+  }
+  
+  const user = config.users.find(u => u.username === req.user.username);
+  
+  if (user) {
+    const safeUser = { ...user };
+    delete safeUser.password; // 不返回密码
+    res.json(safeUser);
+  } else {
+    res.status(404).json({ error: '用户不存在' });
+  }
+});
+
 // API路由
 
 // 获取项目列表
 app.get('/api/projects', (req, res) => {
-  const safeProjects = config.projects.map(({ id, name, description, icon }) => ({
-    id, name, description, icon
-  }));
-  res.json(safeProjects);
-});
-
-// 获取单个项目详情
-app.get('/api/projects/:projectId', (req, res) => {
-  const { projectId } = req.params;
-  const project = config.projects.find(p => p.id === projectId);
-  
-  if (!project) {
-    return res.status(404).json({ error: '项目不存在' });
+  try {
+    // 强制根据用户角色过滤项目
+    let filteredProjects = [];
+    
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    if (req.user.role === 'admin') {
+      // 管理员可以看到所有项目
+      filteredProjects = [...config.projects];
+    } else {
+      // 普通用户只能看到自己的项目
+      // 首先确保每个项目都有owner字段
+      config.projects.forEach(project => {
+        if (!project.owner) {
+          project.owner = 'admin'; // 默认所有者为admin
+        }
+      });
+      
+      // 然后过滤出当前用户的项目
+      filteredProjects = config.projects.filter(p => p.owner === req.user.username);
+    }
+    
+    // 保存可能的更改
+    saveConfig();
+    
+    // 返回安全的项目列表（不包含敏感信息）
+    const safeProjects = filteredProjects.map(({ id, name, description, icon }) => ({
+      id, name, description, icon
+    }));
+    
+    res.json(safeProjects);
+  } catch (error) {
+    console.error('获取项目列表错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
   }
-
-  res.json(project); // 返回完整的项目信息，包括 apiKey
 });
 
-// 添加新项目
+// 获取项目详情
+app.get('/api/projects/:id', (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    const { id } = req.params;
+    const project = config.projects.find(p => p.id === id);
+    
+    if (!project) {
+      return res.status(404).json({ error: '项目不存在' });
+    }
+    
+    // 确保项目有owner字段
+    if (!project.owner) {
+      project.owner = 'admin'; // 默认所有者为admin
+      saveConfig();
+    }
+    
+    // 检查权限：只有管理员或项目所有者可以访问
+    if (req.user.role !== 'admin' && project.owner !== req.user.username) {
+      return res.status(403).json({ error: '没有权限访问此项目' });
+    }
+    
+    // 返回不含敏感信息的项目数据
+    const { apiKey, ...safeProject } = project;
+    res.json(safeProject);
+  } catch (error) {
+    console.error('获取项目详情错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 创建新项目
 app.post('/api/projects', (req, res) => {
-  const { id, name, description } = req.body;
-  
-  if (!id || !name) {
-    return res.status(400).json({ error: '项目ID和名称是必需的' });
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    const { name, description } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: '项目名称不能为空' });
+    }
+    
+    const id = name.replace(/\s+/g, '-').toLowerCase();
+    const timestamp = Date.now();
+    const apiKey = `api-key-${id}-${timestamp}`;
+    
+    // 检查项目ID是否已存在
+    if (config.projects.some(p => p.id === id)) {
+      return res.status(400).json({ error: '项目ID已存在，请使用不同的项目名称' });
+    }
+    
+    const newProject = {
+      id,
+      name,
+      description: description || '',
+      apiKey,
+      icon: 'favicon.ico',
+      owner: req.user.username // 自动设置项目所有者为当前用户
+    };
+    
+    config.projects.push(newProject);
+    saveConfig();
+    
+    // 创建项目目录结构
+    const projectDir = path.join(__dirname, 'projects', id);
+    const uploadsDir = path.join(projectDir, 'uploads');
+    fs.mkdirSync(uploadsDir, { recursive: true });
+
+    // 初始化空的版本文件
+    saveVersions(id, []);
+    
+    // 返回不含敏感信息的项目数据
+    const { apiKey: _, ...safeProject } = newProject;
+    res.status(201).json(safeProject);
+  } catch (error) {
+    console.error('创建项目错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
   }
-
-  if (config.projects.some(p => p.id === id)) {
-    return res.status(400).json({ error: '项目ID已存在' });
-  }
-
-  const newProject = {
-    id,
-    name,
-    description: description || '',
-    apiKey: `api-key-${id}-${Date.now()}`,
-    icon: 'favicon.ico'
-  };
-
-  config.projects.push(newProject);
-  saveConfig();
-
-  // 创建项目目录结构
-  const projectDir = path.join(__dirname, 'projects', id);
-  const uploadsDir = path.join(projectDir, 'uploads');
-  fs.mkdirSync(uploadsDir, { recursive: true });
-
-  // 初始化空的版本文件
-  saveVersions(id, []);
-
-  const safeProject = { ...newProject };
-  delete safeProject.apiKey;
-  res.json(safeProject);
 });
 
 // 编辑项目
@@ -250,40 +476,68 @@ app.put('/api/projects/:projectId', (req, res) => {
   if (projectIndex === -1) {
     return res.status(404).json({ error: '项目不存在' });
   }
+  
+  // 检查权限：只有项目所有者或管理员可以编辑项目
+  const project = config.projects[projectIndex];
+  if (req.user && (req.user.role === 'admin' || project.owner === req.user.username)) {
+    config.projects[projectIndex] = {
+      ...config.projects[projectIndex],
+      name: name || config.projects[projectIndex].name,
+      description: description || config.projects[projectIndex].description
+    };
 
-  config.projects[projectIndex] = {
-    ...config.projects[projectIndex],
-    name: name || config.projects[projectIndex].name,
-    description: description || config.projects[projectIndex].description
-  };
+    saveConfig();
 
-  saveConfig();
-
-  const safeProject = { ...config.projects[projectIndex] };
-  delete safeProject.apiKey;
-  res.json(safeProject);
+    const safeProject = { ...config.projects[projectIndex] };
+    delete safeProject.apiKey;
+    res.json(safeProject);
+  } else {
+    res.status(403).json({ error: '没有权限编辑此项目' });
+  }
 });
 
 // 删除项目
-app.delete('/api/projects/:projectId', (req, res) => {
-  const { projectId } = req.params;
-
-  const projectIndex = config.projects.findIndex(p => p.id === projectId);
-  if (projectIndex === -1) {
-    return res.status(404).json({ error: '项目不存在' });
+app.delete('/api/projects/:id', (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    const { id } = req.params;
+    const projectIndex = config.projects.findIndex(p => p.id === id);
+    
+    if (projectIndex === -1) {
+      return res.status(404).json({ error: '项目不存在' });
+    }
+    
+    const project = config.projects[projectIndex];
+    
+    // 确保项目有owner字段
+    if (!project.owner) {
+      project.owner = 'admin'; // 默认所有者为admin
+      saveConfig();
+    }
+    
+    // 检查权限：只有管理员或项目所有者可以删除
+    if (req.user.role !== 'admin' && project.owner !== req.user.username) {
+      return res.status(403).json({ error: '没有权限删除此项目' });
+    }
+    
+    // 删除项目
+    config.projects.splice(projectIndex, 1);
+    saveConfig();
+    
+    // 删除项目目录和文件
+    const projectDir = path.join(__dirname, 'projects', id);
+    if (fs.existsSync(projectDir)) {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+    
+    res.json({ message: '项目已成功删除' });
+  } catch (error) {
+    console.error('删除项目错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
   }
-
-  // 从配置中移除项目
-  config.projects.splice(projectIndex, 1);
-  saveConfig();
-
-  // 删除项目目录（可选，取决于是否要保留历史数据）
-  // const projectDir = path.join(__dirname, 'projects', projectId);
-  // if (fs.existsSync(projectDir)) {
-  //   fs.rmdirSync(projectDir, { recursive: true });
-  // }
-
-  res.json({ message: '项目已删除' });
 });
 
 // 重置项目API密钥
@@ -294,11 +548,16 @@ app.post('/api/projects/:projectId/reset-key', (req, res) => {
   if (!project) {
     return res.status(404).json({ error: '项目不存在' });
   }
+  
+  // 检查权限：只有项目所有者或管理员可以重置API密钥
+  if (req.user && (req.user.role === 'admin' || project.owner === req.user.username)) {
+    project.apiKey = `api-key-${projectId}-${Date.now()}`;
+    saveConfig();
 
-  project.apiKey = `api-key-${projectId}-${Date.now()}`;
-  saveConfig();
-
-  res.json({ apiKey: project.apiKey });
+    res.json({ apiKey: project.apiKey });
+  } else {
+    res.status(403).json({ error: '没有权限重置此项目的API密钥' });
+  }
 });
 
 app.get('/status', (req, res) => {
@@ -332,15 +591,37 @@ app.get('/logs', (req, res) => {
 // 获取项目版本列表
 app.get('/api/versions/:projectId', (req, res) => {
   const { projectId } = req.params;
-  const versions = loadVersions(projectId);
   
-  res.json({ versions });
+  // 检查项目是否存在
+  const project = config.projects.find(p => p.id === projectId);
+  if (!project) {
+    return res.status(404).json({ error: '项目不存在' });
+  }
+  
+  // 检查权限：只有项目所有者或管理员可以查看项目版本
+  if (req.user && (req.user.role === 'admin' || project.owner === req.user.username)) {
+    const versions = loadVersions(projectId);
+    res.json({ versions });
+  } else {
+    res.status(403).json({ error: '没有权限访问此项目的版本' });
+  }
 });
 
 // 上传新版本
 app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
   try {
     const { projectId } = req.params;
+    
+    // 检查项目是否存在
+    const project = config.projects.find(p => p.id === projectId);
+    if (!project) {
+      return res.status(404).json({ error: '项目不存在' });
+    }
+    
+    // 检查权限：只有项目所有者或管理员可以上传版本
+    if (!(req.user && (req.user.role === 'admin' || project.owner === req.user.username))) {
+      return res.status(403).json({ error: '没有权限为此项目上传版本' });
+    }
     
     if (!req.file) {
       return res.status(400).json({ error: '没有上传文件' });
@@ -418,6 +699,16 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
   }
 });
 
+// 处理根路径，确保重定向到登录页面
+app.get('/', (req, res) => {
+  if (req.user) {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  } else {
+    res.redirect('/login.html');
+  }
+});
+
+// 启动服务器
 app.listen(config.server.adminPort, () => {
   console.log(`控制面板运行在 http://localhost:${config.server.adminPort}`);
   serverLogs.push(`控制面板已启动，端口: ${config.server.adminPort}`);

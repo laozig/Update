@@ -15,7 +15,9 @@ server.log
 server/config.json
 .env
 .env.local
-.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
 
 # IDE
 .idea/
@@ -225,4 +227,25 @@ server/projects/*/uploads/*
 # 编辑器自动保存文件
 *~
 *.swp
-*.swo 
+*.swo
+
+# 环境配置
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 项目上传文件
+server/projects/*/uploads/
+
+# 日志文件
+*.log
+logs/
+server.log
+
+# 编辑器配置
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace 

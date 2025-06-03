@@ -72,6 +72,11 @@
       object-fit: cover;
       border-radius: 8px;
     }
+    .user-info {
+      margin-top: auto;
+      padding-top: 20px;
+      border-top: 1px solid #495057;
+    }
   </style>
 </head>
 <body>
@@ -99,6 +104,20 @@
         </a>
       </li>
     </ul>
+    
+    <!-- 用户信息和退出按钮 -->
+    <div class="user-info">
+      <div class="d-flex align-items-center mb-3">
+        <i class="bi bi-person-circle fs-3 me-2"></i>
+        <div>
+          <div id="currentUsername">加载中...</div>
+          <small id="userRole" class="text-muted"></small>
+        </div>
+      </div>
+      <button class="btn btn-outline-light btn-sm w-100" id="logoutBtn">
+        <i class="bi bi-box-arrow-right"></i> 退出登录
+      </button>
+    </div>
   </div>
 
   <div class="main-content">
@@ -289,10 +308,74 @@
     let serverRunning = false;
     let currentProject = null;
     
+    // 检查用户是否已登录
+    function checkAuth() {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        window.location.href = '/login.html';
+        return;
+      }
+      
+      // 加载用户信息
+      loadUserInfo();
+    }
+    
+    // 加载用户信息
+    async function loadUserInfo() {
+      try {
+        const token = localStorage.getItem('authToken');
+        const response = await fetch('/api/user', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (!response.ok) {
+          // 如果请求失败（如令牌过期），重定向到登录页面
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('username');
+          window.location.href = '/login.html';
+          return;
+        }
+        
+        const user = await response.json();
+        document.getElementById('currentUsername').textContent = user.username;
+        document.getElementById('userRole').textContent = user.role === 'admin' ? '管理员' : '普通用户';
+      } catch (error) {
+        console.error('加载用户信息失败:', error);
+      }
+    }
+    
+    // 退出登录
+    document.getElementById('logoutBtn').addEventListener('click', function() {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('username');
+      window.location.href = '/login.html';
+    });
+    
+    // 在所有API请求中添加认证头
+    function fetchWithAuth(url, options = {}) {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        window.location.href = '/login.html';
+        return Promise.reject('未认证');
+      }
+      
+      const authOptions = {
+        ...options,
+        headers: {
+          ...options.headers,
+          'Authorization': `Bearer ${token}`
+        }
+      };
+      
+      return fetch(url, authOptions);
+    }
+    
     window.onload = function() {
       checkServerStatus();
       fetchLogs();
-      fetchProjects();
+      loadProjects();
       
       // 添加定时检测
       setInterval(checkServerStatus, 5000); // 每5秒检测一次服务器状态
@@ -316,14 +399,16 @@
       });
     };
     
-    function fetchProjects() {
-      fetch('/api/projects')
-        .then(response => response.json())
-        .then(projects => {
-          updateProjectsList(projects);
-          updateProjectSelects(projects);
-        })
-        .catch(err => console.error('Error fetching projects:', err));
+    async function loadProjects() {
+      try {
+        const response = await fetchWithAuth('/api/projects');
+        const projects = await response.json();
+        
+        updateProjectsList(projects);
+        updateProjectSelects(projects);
+      } catch (error) {
+        console.error('加载项目失败:', error);
+      }
     }
     
     function updateProjectsList(projects) {
@@ -370,7 +455,7 @@
         return;
       }
       
-      fetch('/api/projects', {
+      fetchWithAuth('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, name, description })
@@ -382,7 +467,7 @@
         } else {
           document.getElementById('addProjectForm').reset();
           bootstrap.Modal.getInstance(document.getElementById('addProjectModal')).hide();
-          fetchProjects();
+          loadProjects();
           showAlert('control', 'success', '项目添加成功');
         }
       })
@@ -390,7 +475,7 @@
     }
     
     function openProjectSettings(projectId) {
-      fetch(`/api/projects/${projectId}`)
+      fetchWithAuth(`/api/projects/${projectId}`)
         .then(response => {
           if (!response.ok) {
             throw new Error('项目不存在');
@@ -419,7 +504,7 @@
         return;
       }
       
-      fetch(`/api/projects/${id}`, {
+      fetchWithAuth(`/api/projects/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, description })
@@ -435,7 +520,7 @@
           showAlert('control', 'error', data.error);
         } else {
           bootstrap.Modal.getInstance(document.getElementById('projectSettingsModal')).hide();
-          fetchProjects();
+          loadProjects();
           showAlert('control', 'success', '项目设置已保存');
         }
       })
@@ -445,14 +530,14 @@
     function deleteProject() {
       const id = document.getElementById('editProjectId').value;
       if (confirm(`确定要删除项目 "${id}" 吗？此操作不可恢复。`)) {
-        fetch(`/api/projects/${id}`, { method: 'DELETE' })
+        fetchWithAuth(`/api/projects/${id}`, { method: 'DELETE' })
           .then(response => response.json())
           .then(data => {
             if (data.error) {
               showAlert('control', 'error', data.error);
             } else {
               bootstrap.Modal.getInstance(document.getElementById('projectSettingsModal')).hide();
-              fetchProjects();
+              loadProjects();
               showAlert('control', 'success', '项目已删除');
             }
           })
@@ -462,7 +547,7 @@
     
     function resetApiKey() {
       const id = document.getElementById('editProjectId').value;
-      fetch(`/api/projects/${id}/reset-key`, { method: 'POST' })
+      fetchWithAuth(`/api/projects/${id}/reset-key`, { method: 'POST' })
         .then(response => response.json())
         .then(data => {
           if (data.error) {
@@ -476,14 +561,14 @@
     }
     
     function checkServerStatus() {
-      fetch('/status')
+      fetchWithAuth('/status')
         .then(response => response.json())
         .then(data => updateStatus(data.running))
         .catch(err => console.error('Error checking status:', err));
     }
     
     function fetchLogs() {
-      fetch('/logs')
+      fetchWithAuth('/logs')
         .then(response => response.json())
         .then(data => {
           const logsContainer = document.getElementById('logs');
@@ -510,7 +595,7 @@
     }
     
     document.getElementById('startBtn').addEventListener('click', () => {
-      fetch('/start', { method: 'POST' })
+      fetchWithAuth('/start', { method: 'POST' })
         .then(response => response.json())
         .then(data => {
           updateStatus(data.running);
@@ -520,7 +605,7 @@
     });
     
     document.getElementById('stopBtn').addEventListener('click', () => {
-      fetch('/stop', { method: 'POST' })
+      fetchWithAuth('/stop', { method: 'POST' })
         .then(response => response.json())
         .then(data => {
           updateStatus(data.running);
@@ -547,7 +632,7 @@
         return;
       }
       
-      fetch(`/api/upload/${projectId}`, { method: 'POST', body: formData })
+      fetchWithAuth(`/api/upload/${projectId}`, { method: 'POST', body: formData })
       .then(response => response.json())
       .then(data => {
         if (data.error) {
@@ -575,7 +660,7 @@
       const versionsList = document.getElementById('versionsList');
       versionsList.innerHTML = '<p class="text-center">加载中...</p>';
       
-      fetch(`/api/versions/${projectId}`)
+      fetchWithAuth(`/api/versions/${projectId}`)
         .then(response => response.json())
         .then(data => {
           if (!data.versions || data.versions.length === 0) {
@@ -612,7 +697,8 @@
 
     // 初始化页面
     document.addEventListener('DOMContentLoaded', function() {
-      fetchProjects();
+      checkAuth();
+      loadProjects();
       checkServerStatus();
       fetchLogs();
       
