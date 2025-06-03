@@ -10,76 +10,103 @@
   <style>
     body {
       background-color: #f8f9fa;
-      height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
+      min-height: 100vh;
+      padding: 20px 0;
     }
     .register-container {
       max-width: 450px;
       width: 100%;
-      padding: 20px;
+      padding: 30px;
       background-color: #fff;
-      border-radius: 8px;
+      border-radius: 10px;
       box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
     }
-    .register-logo {
+    .register-header {
       text-align: center;
-      margin-bottom: 20px;
+      margin-bottom: 30px;
     }
-    .register-logo img {
+    .register-header img {
       width: 80px;
       height: 80px;
+      margin-bottom: 15px;
+    }
+    .form-control:focus {
+      border-color: #0d6efd;
+      box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
     }
     .btn-register {
       width: 100%;
       padding: 10px;
-      font-size: 1.1em;
+      font-size: 16px;
+    }
+    .login-link {
+      text-align: center;
+      margin-top: 20px;
+    }
+    .password-requirements {
+      font-size: 0.85em;
+      color: #6c757d;
+      margin-top: 5px;
     }
   </style>
 </head>
 <body>
   <div class="register-container">
-    <div class="register-logo">
+    <div class="register-header">
       <img src="favicon.ico" alt="Logo">
-      <h2 class="mt-3">更新服务器</h2>
-      <p class="text-muted">创建新账号</p>
+      <h2>创建新账户</h2>
+      <p class="text-muted">请填写以下信息完成注册</p>
     </div>
     
-    <div class="alert alert-danger" id="registerError" style="display: none;"></div>
-    <div class="alert alert-success" id="registerSuccess" style="display: none;">注册成功！正在跳转到登录页面...</div>
+    <div class="alert alert-danger" id="registerError" style="display:none;"></div>
+    <div class="alert alert-success" id="registerSuccess" style="display:none;"></div>
     
     <form id="registerForm">
       <div class="mb-3">
         <label for="username" class="form-label">用户名</label>
-        <input type="text" class="form-control" id="username" name="username" required>
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-person-fill"></i></span>
+          <input type="text" class="form-control" id="username" name="username" required>
+        </div>
         <div class="form-text">用户名长度为3-20个字符，只能包含字母、数字和下划线</div>
       </div>
       <div class="mb-3">
         <label for="email" class="form-label">电子邮箱</label>
-        <input type="email" class="form-control" id="email" name="email" required>
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-envelope-fill"></i></span>
+          <input type="email" class="form-control" id="email" name="email" required>
+        </div>
       </div>
       <div class="mb-3">
         <label for="password" class="form-label">密码</label>
-        <input type="password" class="form-control" id="password" name="password" required>
-        <div class="form-text">密码长度至少为6个字符</div>
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+          <input type="password" class="form-control" id="password" name="password" required>
+        </div>
+        <div class="password-requirements">密码长度至少为6个字符</div>
       </div>
       <div class="mb-3">
         <label for="confirmPassword" class="form-label">确认密码</label>
-        <input type="password" class="form-control" id="confirmPassword" name="confirmPassword" required>
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+          <input type="password" class="form-control" id="confirmPassword" name="confirmPassword" required>
+        </div>
       </div>
       <button type="submit" class="btn btn-primary btn-register">
-        <i class="bi bi-person-plus"></i> 注册
+        <i class="bi bi-person-plus-fill me-2"></i>注册
       </button>
     </form>
     
-    <div class="text-center mt-4">
-      <p>已有账号? <a href="login.html">返回登录</a></p>
+    <div class="login-link">
+      <p>已有账号？<a href="login.html">立即登录</a></p>
     </div>
   </div>
 
   <script>
-    document.getElementById('registerForm').addEventListener('submit', async function(e) {
+    document.getElementById('registerForm').addEventListener('submit', function(e) {
       e.preventDefault();
       
       const username = document.getElementById('username').value;
@@ -87,63 +114,78 @@
       const password = document.getElementById('password').value;
       const confirmPassword = document.getElementById('confirmPassword').value;
       
-      // 客户端验证
-      if (password !== confirmPassword) {
-        const errorDiv = document.getElementById('registerError');
-        errorDiv.textContent = '两次输入的密码不一致';
-        errorDiv.style.display = 'block';
+      // 验证输入
+      if (!username || !email || !password || !confirmPassword) {
+        showError('所有字段都是必需的');
         return;
       }
       
-      if (password.length < 6) {
-        const errorDiv = document.getElementById('registerError');
-        errorDiv.textContent = '密码长度至少为6个字符';
-        errorDiv.style.display = 'block';
-        return;
-      }
-      
+      // 验证用户名格式
       const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
       if (!usernameRegex.test(username)) {
-        const errorDiv = document.getElementById('registerError');
-        errorDiv.textContent = '用户名长度为3-20个字符，只能包含字母、数字和下划线';
-        errorDiv.style.display = 'block';
+        showError('用户名长度为3-20个字符，只能包含字母、数字和下划线');
         return;
       }
       
-      try {
-        const response = await fetch('/api/register', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ username, email, password })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
+      // 验证邮箱格式
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        showError('请输入有效的电子邮箱地址');
+        return;
+      }
+      
+      // 验证密码长度
+      if (password.length < 6) {
+        showError('密码长度至少为6个字符');
+        return;
+      }
+      
+      // 验证密码匹配
+      if (password !== confirmPassword) {
+        showError('两次输入的密码不匹配');
+        return;
+      }
+      
+      // 发送注册请求
+      fetch('/api/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, email, password })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.error) {
+          showError(data.error);
+        } else {
           // 注册成功
-          document.getElementById('registerError').style.display = 'none';
+          document.getElementById('registerSuccess').textContent = '注册成功！正在跳转到登录页面...';
           document.getElementById('registerSuccess').style.display = 'block';
           document.getElementById('registerForm').reset();
           
           // 3秒后跳转到登录页面
           setTimeout(() => {
-            window.location.href = 'login.html';
+            window.location.href = '/login.html';
           }, 3000);
-        } else {
-          // 注册失败
-          const errorDiv = document.getElementById('registerError');
-          errorDiv.textContent = data.error || '注册失败，请稍后再试';
-          errorDiv.style.display = 'block';
         }
-      } catch (error) {
-        console.error('注册请求失败:', error);
-        const errorDiv = document.getElementById('registerError');
-        errorDiv.textContent = '注册请求失败，请稍后再试';
-        errorDiv.style.display = 'block';
-      }
+      })
+      .catch(err => {
+        console.error('注册错误:', err);
+        showError('注册请求失败，请稍后再试');
+      });
     });
+    
+    function showError(message) {
+      const errorEl = document.getElementById('registerError');
+      errorEl.textContent = message;
+      errorEl.style.display = 'block';
+      
+      // 5秒后自动隐藏错误消息
+      setTimeout(() => {
+        errorEl.style.display = 'none';
+      }, 5000);
+    }
   </script>
 </body>
 </html> 

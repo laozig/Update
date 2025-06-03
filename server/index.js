@@ -4,6 +4,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -90,6 +91,30 @@ const apiKeyAuth = (req, res, next) => {
     next();
   } else {
     res.status(401).json({ error: '未授权访问，请提供有效的API密钥' });
+  }
+};
+
+// 项目所有权检查中间件
+const checkProjectOwnership = (req, res, next) => {
+  const projectId = req.params.projectId;
+  const project = config.projects.find(p => p.id === projectId);
+  
+  if (!project) {
+    return res.status(404).json({ error: '项目不存在' });
+  }
+  
+  // 确保项目有owner字段
+  if (!project.owner) {
+    project.owner = 'admin'; // 默认所有者为admin
+    saveConfig();
+  }
+  
+  // 检查权限：只有管理员或项目所有者可以访问
+  if (req.user && (req.user.role === 'admin' || project.owner === req.user.username)) {
+    req.project = project; // 将项目信息附加到请求对象
+    next();
+  } else {
+    res.status(403).json({ error: '没有权限访问此项目' });
   }
 };
 
@@ -241,8 +266,8 @@ app.get('/api/projects', (req, res) => {
   }
   
   // 返回项目列表，但不包含敏感信息如apiKey
-  const safeProjects = filteredProjects.map(({ id, name, description, icon }) => ({
-    id, name, description, icon
+  const safeProjects = filteredProjects.map(({ id, name, description, icon, owner }) => ({
+    id, name, description, icon, owner
   }));
   res.json(safeProjects);
 });
@@ -422,6 +447,72 @@ app.get('/download/:projectId/:version', (req, res) => {
   } else {
     res.status(404).json({ error: `文件 ${versionInfo.fileName} 不存在` });
   }
+});
+
+// 用户API路由
+app.get('/api/users', authenticateJWT, (req, res) => {
+  // 只有管理员可以查看用户列表
+  if (req.user && req.user.role === 'admin') {
+    // 返回用户列表，但不包含密码
+    const safeUsers = config.users.map(({ username, email, role, createdAt }) => ({
+      username, email, role, createdAt
+    }));
+    res.json(safeUsers);
+  } else {
+    res.status(403).json({ error: '没有权限访问用户列表' });
+  }
+});
+
+// 获取当前用户信息
+app.get('/api/user/current', authenticateJWT, (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ error: '未认证' });
+  }
+  
+  const user = config.users.find(u => u.username === req.user.username);
+  
+  if (user) {
+    const safeUser = { ...user };
+    delete safeUser.password; // 不返回密码
+    res.json(safeUser);
+  } else {
+    res.status(404).json({ error: '用户不存在' });
+  }
+});
+
+// 管理员更改用户角色
+app.put('/api/users/:username/role', authenticateJWT, (req, res) => {
+  // 只有管理员可以更改用户角色
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: '没有权限更改用户角色' });
+  }
+  
+  const { username } = req.params;
+  const { role } = req.body;
+  
+  // 验证角色
+  if (!role || !['user', 'admin'].includes(role)) {
+    return res.status(400).json({ error: '无效的角色' });
+  }
+  
+  const userIndex = config.users.findIndex(u => u.username === username);
+  
+  if (userIndex === -1) {
+    return res.status(404).json({ error: '用户不存在' });
+  }
+  
+  // 不允许更改最后一个管理员的角色
+  if (username === req.user.username && role !== 'admin') {
+    const adminCount = config.users.filter(u => u.role === 'admin').length;
+    if (adminCount <= 1) {
+      return res.status(400).json({ error: '不能更改最后一个管理员的角色' });
+    }
+  }
+  
+  config.users[userIndex].role = role;
+  saveConfig();
+  
+  res.json({ message: `用户 ${username} 的角色已更改为 ${role}` });
 });
 
 // 错误处理中间件

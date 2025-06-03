@@ -7,6 +7,19 @@ const multer = require('multer');
 const net = require('net');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const http = require('http');
+const WebSocket = require('ws');
+
+// 设置未捕获异常处理
+process.on('uncaughtException', (err) => {
+  console.error('未捕获的异常:', err);
+  // 记录错误但不退出进程
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('未处理的Promise拒绝:', reason);
+  // 记录错误但不退出进程
+});
 
 // 控制面板应用
 const app = express();
@@ -15,6 +28,15 @@ let serverProcess = null;
 let serverRunning = false;
 let serverLogs = [];
 const MAX_LOGS = 1000; // 最大保存日志行数
+
+// 创建HTTP服务器
+const server = http.createServer(app);
+
+// 创建WebSocket服务器
+const wss = new WebSocket.Server({ server });
+
+// 存储活跃的WebSocket连接
+const activeConnections = new Map();
 
 // JWT密钥
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
@@ -60,6 +82,27 @@ const loadConfig = () => {
         ];
         saveConfig();
       }
+      
+      // 确保roles数组存在
+      if (!config.roles) {
+        config.roles = [
+          {
+            id: 'admin',
+            name: '管理员',
+            description: '系统管理员，拥有所有权限',
+            permissions: ['all'],
+            isSystem: true
+          },
+          {
+            id: 'user',
+            name: '普通用户',
+            description: '普通用户，只能管理自己的项目',
+            permissions: ['manage_own_projects'],
+            isSystem: true
+          }
+        ];
+        saveConfig();
+      }
     } else {
       saveConfig();
     }
@@ -96,7 +139,153 @@ const addLog = (message) => {
   } catch (err) {
     console.error('写入日志失败:', err);
   }
+  
+  // 通过WebSocket广播日志
+  broadcastToAll({
+    type: 'log',
+    message: logEntry
+  });
 };
+
+// WebSocket连接处理
+wss.on('connection', (ws, req) => {
+  console.log('新的WebSocket连接');
+  
+  // 为连接分配一个唯一ID
+  const connectionId = crypto.randomUUID();
+  activeConnections.set(connectionId, { ws, user: null });
+  
+  // 处理消息
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      
+      // 处理认证消息
+      if (data.type === 'auth' && data.token) {
+        jwt.verify(data.token, JWT_SECRET, (err, user) => {
+          if (err) {
+            ws.send(JSON.stringify({
+              type: 'auth_error',
+              message: '无效或过期的令牌'
+            }));
+            return;
+          }
+          
+          // 保存用户信息
+          const connection = activeConnections.get(connectionId);
+          if (connection) {
+            connection.user = user;
+            activeConnections.set(connectionId, connection);
+            
+            // 发送认证成功消息
+            ws.send(JSON.stringify({
+              type: 'auth_success',
+              user: {
+                username: user.username,
+                role: user.role
+              }
+            }));
+            
+            console.log(`WebSocket用户已认证: ${user.username}`);
+          }
+        });
+      }
+    } catch (error) {
+      console.error('处理WebSocket消息时出错:', error);
+    }
+  });
+  
+  // 处理连接关闭
+  ws.on('close', () => {
+    console.log('WebSocket连接已关闭');
+    activeConnections.delete(connectionId);
+  });
+  
+  // 处理错误
+  ws.on('error', (error) => {
+    console.error('WebSocket错误:', error);
+    activeConnections.delete(connectionId);
+  });
+  
+  // 发送初始状态
+  ws.send(JSON.stringify({
+    type: 'server_status',
+    running: serverRunning
+  }));
+});
+
+// 向所有连接的客户端广播消息
+function broadcastToAll(message) {
+  try {
+    const messageStr = JSON.stringify(message);
+    activeConnections.forEach(({ ws }) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(messageStr);
+        } catch (err) {
+          console.error('发送WebSocket消息失败:', err);
+        }
+      }
+    });
+  } catch (err) {
+    console.error('广播消息失败:', err);
+  }
+}
+
+// 向特定角色的用户广播消息
+function broadcastToRole(message, role) {
+  try {
+    const messageStr = JSON.stringify(message);
+    activeConnections.forEach(({ ws, user }) => {
+      if (ws.readyState === WebSocket.OPEN && user && (user.role === role || user.role === 'admin')) {
+        try {
+          ws.send(messageStr);
+        } catch (err) {
+          console.error('发送角色WebSocket消息失败:', err);
+        }
+      }
+    });
+  } catch (err) {
+    console.error('角色广播消息失败:', err);
+  }
+}
+
+// 向特定用户广播消息
+function broadcastToUser(message, username) {
+  try {
+    const messageStr = JSON.stringify(message);
+    activeConnections.forEach(({ ws, user }) => {
+      if (ws.readyState === WebSocket.OPEN && user && user.username === username) {
+        try {
+          ws.send(messageStr);
+        } catch (err) {
+          console.error(`发送用户(${username})WebSocket消息失败:`, err);
+        }
+      }
+    });
+  } catch (err) {
+    console.error(`用户(${username})广播消息失败:`, err);
+  }
+}
+
+// 发送通知
+function sendNotification(title, message, level = 'info', role = null, username = null) {
+  const notification = {
+    type: 'notification',
+    title,
+    message,
+    level,
+    timestamp: new Date().toISOString()
+  };
+  
+  if (username) {
+    broadcastToUser(notification, username);
+  } else if (role) {
+    broadcastToRole(notification, role);
+  } else {
+    broadcastToAll(notification);
+  }
+}
 
 // 初始化加载配置
 loadConfig();
@@ -255,23 +444,31 @@ app.post('/api/login', (req, res) => {
     return res.status(400).json({ error: '用户名和密码不能为空' });
   }
   
-  const user = config.users.find(u => u.username === username && u.password === password);
+  const user = config.users.find(u => u.username === username);
   
   if (user) {
-    // 生成JWT令牌
-    const token = jwt.sign(
-      { 
-        username: user.username, 
-        role: user.role,
-        email: user.email
-      }, 
-      JWT_SECRET, 
-      { expiresIn: TOKEN_EXPIRY }
-    );
-    
-    addLog(`用户 ${username} 登录成功`);
-    res.json({ token });
+    // 使用明文密码比较
+    if (user.password === password) {
+      // 生成JWT令牌
+      const token = jwt.sign(
+        { 
+          username: user.username, 
+          role: user.role,
+          email: user.email
+        }, 
+        JWT_SECRET, 
+        { expiresIn: TOKEN_EXPIRY }
+      );
+      
+      addLog(`用户 ${username} 登录成功`);
+      console.log(`用户 ${username} 登录成功，角色: ${user.role}`);
+      res.json({ token });
+    } else {
+      console.log(`用户 ${username} 登录失败: 密码错误`);
+      res.status(401).json({ error: '用户名或密码错误' });
+    }
   } else {
+    console.log(`用户 ${username} 登录失败: 用户不存在`);
     res.status(401).json({ error: '用户名或密码错误' });
   }
 });
@@ -306,11 +503,11 @@ app.post('/api/register', (req, res) => {
     return res.status(400).json({ error: '邮箱已被使用' });
   }
   
-  // 创建新用户
+  // 创建新用户，使用明文密码
   const newUser = {
     username,
     email,
-    password, // 注意：实际应用中应该哈希密码
+    password, // 存储明文密码
     role: 'user', // 默认角色为普通用户
     createdAt: new Date().toISOString()
   };
@@ -372,10 +569,10 @@ app.get('/api/projects', (req, res) => {
     
     // 返回安全的项目列表（不包含敏感信息）
     const safeProjects = filteredProjects.map(({ id, name, description, icon }) => ({
-      id, name, description, icon
-    }));
+    id, name, description, icon
+  }));
     
-    res.json(safeProjects);
+  res.json(safeProjects);
   } catch (error) {
     console.error('获取项目列表错误:', error);
     res.status(500).json({ error: '服务器内部错误' });
@@ -393,12 +590,12 @@ app.get('/api/projects/:id', (req, res) => {
     console.log(`获取项目详情请求: ${id}, 用户: ${req.user.username}`);
     
     const project = config.projects.find(p => p.id === id);
-    
-    if (!project) {
+  
+  if (!project) {
       console.log(`项目不存在: ${id}`);
-      return res.status(404).json({ error: '项目不存在' });
-    }
-    
+    return res.status(404).json({ error: '项目不存在' });
+  }
+
     // 确保项目有owner字段
     if (!project.owner) {
       project.owner = 'admin'; // 默认所有者为admin
@@ -449,32 +646,47 @@ app.post('/api/projects', (req, res) => {
     const apiKey = `api-key-${id}-${timestamp}`;
     
     // 检查项目ID是否已存在
-    if (config.projects.some(p => p.id === id)) {
+  if (config.projects.some(p => p.id === id)) {
       return res.status(400).json({ error: '项目ID已存在，请使用不同的项目ID或名称' });
-    }
-    
-    const newProject = {
-      id,
-      name,
-      description: description || '',
+  }
+
+  const newProject = {
+    id,
+    name,
+    description: description || '',
       apiKey,
       icon: 'favicon.ico',
       owner: req.user.username // 自动设置项目所有者为当前用户
-    };
+  };
     
     // 调试日志
     console.log('创建新项目:', newProject);
-    
-    config.projects.push(newProject);
-    saveConfig();
-    
-    // 创建项目目录结构
-    const projectDir = path.join(__dirname, 'projects', id);
-    const uploadsDir = path.join(projectDir, 'uploads');
-    fs.mkdirSync(uploadsDir, { recursive: true });
 
-    // 初始化空的版本文件
-    saveVersions(id, []);
+  config.projects.push(newProject);
+  saveConfig();
+
+  // 创建项目目录结构
+  const projectDir = path.join(__dirname, 'projects', id);
+  const uploadsDir = path.join(projectDir, 'uploads');
+  fs.mkdirSync(uploadsDir, { recursive: true });
+
+  // 初始化空的版本文件
+  saveVersions(id, []);
+
+    // 发送WebSocket通知
+    sendNotification(
+      '项目已创建', 
+      `项目 "${name}" 已成功创建`, 
+      'success', 
+      null, 
+      req.user.username
+    );
+    
+    broadcastToAll({
+      type: 'project_update',
+      action: 'created',
+      projectId: id
+    });
     
     // 返回完整项目数据，包括API密钥
     res.status(201).json(newProject);
@@ -493,21 +705,21 @@ app.put('/api/projects/:projectId', (req, res) => {
   if (projectIndex === -1) {
     return res.status(404).json({ error: '项目不存在' });
   }
-  
+
   // 检查权限：只有项目所有者或管理员可以编辑项目
   const project = config.projects[projectIndex];
   if (req.user && (req.user.role === 'admin' || project.owner === req.user.username)) {
-    config.projects[projectIndex] = {
-      ...config.projects[projectIndex],
-      name: name || config.projects[projectIndex].name,
-      description: description || config.projects[projectIndex].description
-    };
+  config.projects[projectIndex] = {
+    ...config.projects[projectIndex],
+    name: name || config.projects[projectIndex].name,
+    description: description || config.projects[projectIndex].description
+  };
 
-    saveConfig();
+  saveConfig();
 
-    const safeProject = { ...config.projects[projectIndex] };
-    delete safeProject.apiKey;
-    res.json(safeProject);
+  const safeProject = { ...config.projects[projectIndex] };
+  delete safeProject.apiKey;
+  res.json(safeProject);
   } else {
     res.status(403).json({ error: '没有权限编辑此项目' });
   }
@@ -523,10 +735,10 @@ app.delete('/api/projects/:id', (req, res) => {
     const { id } = req.params;
     const projectIndex = config.projects.findIndex(p => p.id === id);
     
-    if (projectIndex === -1) {
-      return res.status(404).json({ error: '项目不存在' });
-    }
-    
+  if (projectIndex === -1) {
+    return res.status(404).json({ error: '项目不存在' });
+  }
+
     const project = config.projects[projectIndex];
     
     // 确保项目有owner字段
@@ -541,14 +753,29 @@ app.delete('/api/projects/:id', (req, res) => {
     }
     
     // 删除项目
-    config.projects.splice(projectIndex, 1);
-    saveConfig();
-    
+  config.projects.splice(projectIndex, 1);
+  saveConfig();
+
     // 删除项目目录和文件
     const projectDir = path.join(__dirname, 'projects', id);
     if (fs.existsSync(projectDir)) {
       fs.rmSync(projectDir, { recursive: true, force: true });
     }
+    
+    // 发送WebSocket通知
+    sendNotification(
+      '项目已删除', 
+      `项目 "${project.name}" 已被删除`, 
+      'warning', 
+      null, 
+      req.user.username
+    );
+    
+    broadcastToAll({
+      type: 'project_update',
+      action: 'deleted',
+      projectId: id
+    });
     
     res.json({ message: '项目已成功删除' });
   } catch (error) {
@@ -560,24 +787,24 @@ app.delete('/api/projects/:id', (req, res) => {
 // 重置项目API密钥
 app.post('/api/projects/:projectId/reset-key', (req, res) => {
   try {
-    const { projectId } = req.params;
+  const { projectId } = req.params;
     console.log(`重置API密钥请求: ${projectId}, 用户: ${req.user ? req.user.username : '未认证'}`);
 
-    const project = config.projects.find(p => p.id === projectId);
-    if (!project) {
+  const project = config.projects.find(p => p.id === projectId);
+  if (!project) {
       console.log(`项目不存在: ${projectId}`);
-      return res.status(404).json({ error: '项目不存在' });
-    }
-    
+    return res.status(404).json({ error: '项目不存在' });
+  }
+
     // 检查权限：只有项目所有者或管理员可以重置API密钥
     if (req.user && (req.user.role === 'admin' || project.owner === req.user.username)) {
       const newApiKey = `api-key-${projectId}-${Date.now()}`;
       console.log(`为项目 ${projectId} 生成新的API密钥: ${newApiKey}`);
       
       project.apiKey = newApiKey;
-      saveConfig();
+  saveConfig();
 
-      res.json({ apiKey: project.apiKey });
+  res.json({ apiKey: project.apiKey });
     } else {
       console.log(`权限拒绝: 用户尝试重置项目 ${projectId} 的API密钥`);
       res.status(403).json({ error: '没有权限重置此项目的API密钥' });
@@ -629,7 +856,7 @@ app.get('/api/versions/:projectId', (req, res) => {
   // 检查权限：只有项目所有者或管理员可以查看项目版本
   if (req.user && (req.user.role === 'admin' || project.owner === req.user.username)) {
     const versions = loadVersions(projectId);
-    res.json({ versions });
+  res.json({ versions });
   } else {
     res.status(403).json({ error: '没有权限访问此项目的版本' });
   }
@@ -658,6 +885,12 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
     const { version, releaseNotes } = req.body;
     if (!version) {
       return res.status(400).json({ error: '缺少版本号' });
+    }
+    
+    // 验证版本号格式（例如：1.0.0, 2.3.1 等）
+    const versionRegex = /^\d+(\.\d+)*$/;
+    if (!versionRegex.test(version)) {
+      return res.status(400).json({ error: '无效的版本号格式，请使用数字和点号（例如：1.0.0）' });
     }
 
     const versions = loadVersions(projectId);
@@ -717,12 +950,29 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
     saveVersions(projectId, versions);
     const successMsg = `项目 ${projectId} 的新版本 ${version} 已上传: ${newFileName}`;
     console.log(successMsg); // 简化的成功日志
-    serverLogs.push(successMsg); // 控制面板日志也使用简化信息
+    addLog(successMsg); // 控制面板日志也使用简化信息
+    
+    // 发送WebSocket通知
+    sendNotification(
+      '新版本已上传', 
+      `项目 "${project.name}" 的版本 ${version} 已成功上传`, 
+      'success', 
+      null, 
+      req.user.username
+    );
+    
+    broadcastToAll({
+      type: 'version_update',
+      action: 'created',
+      projectId,
+      version
+    });
+    
     res.json({ message: '版本上传成功', version: newVersionInfo });
 
   } catch (err) {
-    console.error(`Upload Route (server-ui.js) - Error for project ${projectId}:`, err);
-    serverLogs.push(`上传失败: ${err.message}`);
+    console.error(`Upload Route (server-ui.js) - Error for project ${req.params ? req.params.projectId : 'unknown'}:`, err);
+    addLog(`上传失败: ${err.message}`);
     res.status(500).json({ error: '上传失败，服务器内部错误' });
   }
 });
@@ -736,10 +986,592 @@ app.get('/', (req, res) => {
   }
 });
 
+// 获取用户列表
+app.get('/api/users', (req, res) => {
+  try {
+    console.log('请求用户列表 - 用户:', req.user ? req.user.username : '未认证', '角色:', req.user ? req.user.role : '无');
+    
+    // 只有管理员可以查看用户列表
+    if (!req.user) {
+      console.log('获取用户列表失败: 未认证');
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    if (req.user.role !== 'admin') {
+      console.log(`获取用户列表失败: 用户 ${req.user.username} 不是管理员`);
+      return res.status(403).json({ error: '没有权限访问用户列表' });
+    }
+    
+    // 返回用户列表，但不包含密码
+    const safeUsers = config.users.map(({ username, email, role, createdAt }) => ({
+      username, email, role, createdAt
+    }));
+    
+    console.log(`成功获取用户列表: ${safeUsers.length} 个用户`);
+    res.json(safeUsers);
+  } catch (error) {
+    console.error('获取用户列表错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 管理员创建用户
+app.post('/api/users', (req, res) => {
+  try {
+    // 验证权限
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: '只有管理员可以创建用户' });
+    }
+    
+    const { username, email, password, role } = req.body;
+    
+    // 验证输入
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: '用户名、邮箱和密码都是必需的' });
+    }
+    
+    // 验证用户名格式
+    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+    if (!usernameRegex.test(username)) {
+      return res.status(400).json({ error: '用户名长度为3-20个字符，只能包含字母、数字和下划线' });
+    }
+    
+    // 验证密码长度
+    if (password.length < 6) {
+      return res.status(400).json({ error: '密码长度至少为6个字符' });
+    }
+    
+    // 检查用户名是否已存在
+    if (config.users.some(u => u.username === username)) {
+      return res.status(400).json({ error: '用户名已被使用' });
+    }
+    
+    // 检查邮箱是否已存在
+    if (config.users.some(u => u.email === email)) {
+      return res.status(400).json({ error: '邮箱已被使用' });
+    }
+    
+    const validRole = ['user', 'admin'].includes(role) ? role : 'user';
+    
+    // 创建新用户，使用明文密码
+    const newUser = {
+      username,
+      email,
+      password, // 存储明文密码
+      role: validRole,
+      createdAt: new Date().toISOString()
+    };
+    
+    config.users.push(newUser);
+    saveConfig();
+    
+    addLog(`管理员 ${req.user.username} 创建了新用户: ${username} (${email}), 角色: ${validRole}`);
+    
+    // 发送WebSocket通知
+    sendNotification(
+      '新用户已创建', 
+      `用户 "${username}" 已创建，角色: ${validRole === 'admin' ? '管理员' : '普通用户'}`, 
+      'info', 
+      'admin'
+    );
+    
+    broadcastToAll({
+      type: 'user_update',
+      action: 'created',
+      username
+    });
+    
+    // 返回创建的用户信息，但不包含密码
+    const safeUser = { ...newUser };
+    delete safeUser.password;
+    res.status(201).json(safeUser);
+  } catch (error) {
+    console.error('创建用户错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 管理员删除用户
+app.delete('/api/users/:username', (req, res) => {
+  try {
+    // 验证权限
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: '只有管理员可以删除用户' });
+    }
+    
+    const { username } = req.params;
+    
+    // 不能删除自己
+    if (username === req.user.username) {
+      return res.status(400).json({ error: '不能删除当前登录的管理员账户' });
+    }
+    
+    // 查找用户
+    const userIndex = config.users.findIndex(u => u.username === username);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    
+    // 不能删除最后一个管理员
+    const isAdmin = config.users[userIndex].role === 'admin';
+    if (isAdmin) {
+      const adminCount = config.users.filter(u => u.role === 'admin').length;
+      if (adminCount <= 1) {
+        return res.status(400).json({ error: '不能删除最后一个管理员账户' });
+      }
+    }
+    
+    // 删除用户
+    const deletedUser = config.users.splice(userIndex, 1)[0];
+    saveConfig();
+    
+    addLog(`管理员 ${req.user.username} 删除了用户: ${username}`);
+    
+    // 发送WebSocket通知
+    sendNotification(
+      '用户已删除', 
+      `用户 "${username}" 已被删除`, 
+      'warning', 
+      'admin'
+    );
+    
+    broadcastToAll({
+      type: 'user_update',
+      action: 'deleted',
+      username
+    });
+    
+    // 返回成功消息
+    res.json({ message: `用户 ${username} 已成功删除` });
+  } catch (error) {
+    console.error('删除用户错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 管理员更改用户角色
+app.put('/api/users/:username/role', (req, res) => {
+  try {
+    // 只有管理员可以更改用户角色
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({ error: '没有权限更改用户角色' });
+    }
+    
+    const { username } = req.params;
+    const { role } = req.body;
+    
+    console.log(`尝试更改用户 ${username} 的角色为 ${role}`);
+    
+    // 验证角色
+    if (!role || !['user', 'admin'].includes(role)) {
+      return res.status(400).json({ error: '无效的角色' });
+    }
+    
+    const userIndex = config.users.findIndex(u => u.username === username);
+    
+    if (userIndex === -1) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    
+    // 不允许更改最后一个管理员的角色
+    if (username === req.user.username && role !== 'admin') {
+      const adminCount = config.users.filter(u => u.role === 'admin').length;
+      if (adminCount <= 1) {
+        return res.status(400).json({ error: '不能更改最后一个管理员的角色' });
+      }
+    }
+    
+    // 更新用户角色
+    config.users[userIndex].role = role;
+    saveConfig();
+    
+    addLog(`管理员 ${req.user.username} 将用户 ${username} 的角色更改为 ${role}`);
+    
+    // 发送WebSocket通知
+    sendNotification(
+      '用户角色已更改', 
+      `用户 "${username}" 的角色已更改为 ${role === 'admin' ? '管理员' : '普通用户'}`, 
+      'info', 
+      'admin'
+    );
+    
+    broadcastToAll({
+      type: 'user_update',
+      action: 'role_updated',
+      username,
+      role
+    });
+    
+    res.json({ message: `用户 ${username} 的角色已更改为 ${role}` });
+  } catch (error) {
+    console.error('更改用户角色错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 管理员编辑用户信息
+app.put('/api/users/:username', (req, res) => {
+  try {
+    // 验证权限
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    const { username } = req.params;
+    const { email, password } = req.body;
+    
+    // 只有管理员或用户本人可以编辑用户信息
+    if (req.user.role !== 'admin' && req.user.username !== username) {
+      return res.status(403).json({ error: '没有权限编辑此用户信息' });
+    }
+    
+    // 查找用户
+    const userIndex = config.users.findIndex(u => u.username === username);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    
+    const user = config.users[userIndex];
+    
+    // 更新邮箱（如果提供）
+    if (email) {
+      // 检查邮箱是否已被其他用户使用
+      const emailExists = config.users.some((u, i) => u.email === email && i !== userIndex);
+      if (emailExists) {
+        return res.status(400).json({ error: '邮箱已被其他用户使用' });
+      }
+      user.email = email;
+    }
+    
+    // 更新密码（如果提供）
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).json({ error: '密码长度至少为6个字符' });
+      }
+      user.password = password; // 使用明文密码
+    }
+    
+    // 保存更改
+    saveConfig();
+    
+    addLog(`用户 ${username} 的信息已更新`);
+    
+    // 发送WebSocket通知
+    sendNotification(
+      '用户信息已更新', 
+      `用户 "${username}" 的信息已更新`, 
+      'info', 
+      'admin'
+    );
+    
+    broadcastToAll({
+      type: 'user_update',
+      action: 'updated',
+      username
+    });
+    
+    // 返回更新后的用户信息（不含密码）
+    const safeUser = { ...user };
+    delete safeUser.password;
+    res.json(safeUser);
+  } catch (error) {
+    console.error('编辑用户信息错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 获取单个用户信息
+app.get('/api/users/:username', (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    const { username } = req.params;
+    
+    // 只有管理员或用户本人可以查看用户信息
+    if (req.user.role !== 'admin' && req.user.username !== username) {
+      return res.status(403).json({ error: '没有权限查看此用户信息' });
+    }
+    
+    const user = config.users.find(u => u.username === username);
+    
+    if (!user) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    
+    // 返回用户信息，但不包含密码
+    const safeUser = { ...user };
+    delete safeUser.password;
+    res.json(safeUser);
+  } catch (error) {
+    console.error('获取用户信息错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 获取角色列表
+app.get('/api/roles', (req, res) => {
+  try {
+    // 验证权限
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: '只有管理员可以查看角色列表' });
+    }
+    
+    // 确保roles数组存在
+    if (!config.roles) {
+      config.roles = [
+        {
+          id: 'admin',
+          name: '管理员',
+          description: '系统管理员，拥有所有权限',
+          permissions: ['all'],
+          isSystem: true
+        },
+        {
+          id: 'user',
+          name: '普通用户',
+          description: '普通用户，只能管理自己的项目',
+          permissions: ['manage_own_projects'],
+          isSystem: true
+        }
+      ];
+      saveConfig();
+    }
+    
+    res.json(config.roles);
+  } catch (error) {
+    console.error('获取角色列表错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 获取单个角色信息
+app.get('/api/roles/:roleId', (req, res) => {
+  try {
+    // 验证权限
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: '只有管理员可以查看角色信息' });
+    }
+    
+    const { roleId } = req.params;
+    
+    // 确保roles数组存在
+    if (!config.roles) {
+      return res.status(404).json({ error: '角色系统未初始化' });
+    }
+    
+    // 查找角色
+    const role = config.roles.find(r => r.id === roleId);
+    if (!role) {
+      return res.status(404).json({ error: '角色不存在' });
+    }
+    
+    res.json(role);
+  } catch (error) {
+    console.error('获取角色信息错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 创建新角色
+app.post('/api/roles', (req, res) => {
+  try {
+    // 验证权限
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: '只有管理员可以创建角色' });
+    }
+    
+    const { id, name, description, permissions } = req.body;
+    
+    // 验证输入
+    if (!id || !name) {
+      return res.status(400).json({ error: '角色ID和名称是必需的' });
+    }
+    
+    // 验证角色ID格式
+    const idRegex = /^[a-zA-Z0-9_]{2,20}$/;
+    if (!idRegex.test(id)) {
+      return res.status(400).json({ error: '角色ID长度为2-20个字符，只能包含字母、数字和下划线' });
+    }
+    
+    // 确保roles数组存在
+    if (!config.roles) {
+      config.roles = [
+        {
+          id: 'admin',
+          name: '管理员',
+          description: '系统管理员，拥有所有权限',
+          permissions: ['all'],
+          isSystem: true
+        },
+        {
+          id: 'user',
+          name: '普通用户',
+          description: '普通用户，只能管理自己的项目',
+          permissions: ['manage_own_projects'],
+          isSystem: true
+        }
+      ];
+    }
+    
+    // 检查角色ID是否已存在
+    if (config.roles.some(r => r.id === id)) {
+      return res.status(400).json({ error: '角色ID已存在' });
+    }
+    
+    // 创建新角色
+    const newRole = {
+      id,
+      name,
+      description: description || '',
+      permissions: permissions || [],
+      isSystem: false
+    };
+    
+    config.roles.push(newRole);
+    saveConfig();
+    
+    addLog(`管理员 ${req.user.username} 创建了新角色: ${name} (${id})`);
+    res.status(201).json(newRole);
+  } catch (error) {
+    console.error('创建角色错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 更新角色
+app.put('/api/roles/:roleId', (req, res) => {
+  try {
+    // 验证权限
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: '只有管理员可以更新角色' });
+    }
+    
+    const { roleId } = req.params;
+    const { name, description, permissions } = req.body;
+    
+    // 确保roles数组存在
+    if (!config.roles) {
+      return res.status(404).json({ error: '角色系统未初始化' });
+    }
+    
+    // 查找角色
+    const roleIndex = config.roles.findIndex(r => r.id === roleId);
+    if (roleIndex === -1) {
+      return res.status(404).json({ error: '角色不存在' });
+    }
+    
+    const role = config.roles[roleIndex];
+    
+    // 不能修改系统角色
+    if (role.isSystem) {
+      return res.status(403).json({ error: '不能修改系统角色' });
+    }
+    
+    // 更新角色信息
+    if (name) role.name = name;
+    if (description !== undefined) role.description = description;
+    if (permissions) role.permissions = permissions;
+    
+    saveConfig();
+    
+    addLog(`管理员 ${req.user.username} 更新了角色: ${role.name} (${roleId})`);
+    res.json(role);
+  } catch (error) {
+    console.error('更新角色错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
+// 删除角色
+app.delete('/api/roles/:roleId', (req, res) => {
+  try {
+    // 验证权限
+    if (!req.user) {
+      return res.status(401).json({ error: '未认证' });
+    }
+    
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: '只有管理员可以删除角色' });
+    }
+    
+    const { roleId } = req.params;
+    
+    // 确保roles数组存在
+    if (!config.roles) {
+      return res.status(404).json({ error: '角色系统未初始化' });
+    }
+    
+    // 查找角色
+    const roleIndex = config.roles.findIndex(r => r.id === roleId);
+    if (roleIndex === -1) {
+      return res.status(404).json({ error: '角色不存在' });
+    }
+    
+    const role = config.roles[roleIndex];
+    
+    // 不能删除系统角色
+    if (role.isSystem) {
+      return res.status(403).json({ error: '不能删除系统角色' });
+    }
+    
+    // 检查是否有用户正在使用该角色
+    const usersWithRole = config.users.filter(u => u.role === roleId);
+    if (usersWithRole.length > 0) {
+      return res.status(400).json({ 
+        error: `无法删除角色，有 ${usersWithRole.length} 个用户正在使用该角色`,
+        users: usersWithRole.map(u => u.username)
+      });
+    }
+    
+    // 删除角色
+    config.roles.splice(roleIndex, 1);
+    saveConfig();
+    
+    addLog(`管理员 ${req.user.username} 删除了角色: ${role.name} (${roleId})`);
+    res.json({ message: `角色 ${role.name} 已成功删除` });
+  } catch (error) {
+    console.error('删除角色错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
+
 // 启动服务器
-app.listen(config.server.adminPort, () => {
+server.listen(config.server.adminPort, () => {
   console.log(`控制面板运行在 http://localhost:${config.server.adminPort}`);
   serverLogs.push(`控制面板已启动，端口: ${config.server.adminPort}`);
+});
+
+// 全局错误处理中间件
+app.use((err, req, res, next) => {
+  console.error('服务器错误:', err);
+  addLog(`[错误] ${err.message}`);
+  res.status(500).json({ error: '服务器内部错误' });
 });
 
 function showAlert(type, message) {
