@@ -483,6 +483,10 @@
           return response.json();
         })
         .then(project => {
+          // 调试日志
+          console.log('获取到的项目数据:', project);
+          console.log('API密钥:', project.apiKey);
+          
           document.getElementById('editProjectId').value = project.id;
           document.getElementById('editProjectName').value = project.name;
           document.getElementById('editProjectDescription').value = project.description || '';

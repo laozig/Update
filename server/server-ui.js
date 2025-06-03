@@ -407,6 +407,10 @@ app.get('/api/projects/:id', (req, res) => {
       return res.status(403).json({ error: '没有权限访问此项目' });
     }
     
+    // 调试日志
+    console.log('项目详情API返回数据:', JSON.stringify(project));
+    console.log('API密钥:', project.apiKey);
+    
     // 返回项目数据，包括API密钥
     res.json(project);
   } catch (error) {
