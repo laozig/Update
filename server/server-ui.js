@@ -222,7 +222,7 @@ app.post('/api/projects', (req, res) => {
     name,
     description: description || '',
     apiKey: `api-key-${id}-${Date.now()}`,
-    icon: 'icons/default.png'
+    icon: 'favicon.ico'
   };
 
   config.projects.push(newProject);
