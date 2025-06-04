@@ -1187,10 +1187,24 @@
     }
     
     function checkServerStatus() {
+      console.log('正在检查服务器状态...');
       fetchWithAuth('/status')
-        .then(response => response.json())
-        .then(data => updateStatus(data.running))
-        .catch(err => console.error('Error checking status:', err));
+        .then(response => {
+          if (!response.ok) {
+            console.error('状态检查请求失败:', response.status);
+            throw new Error('状态检查请求失败');
+          }
+          return response.json();
+        })
+        .then(data => {
+          console.log('服务器状态检查结果:', data);
+          updateStatus(data.running);
+        })
+        .catch(err => {
+          console.error('检查服务器状态失败:', err);
+          // 如果请求失败，假定服务器已停止
+          updateStatus(false);
+        });
     }
     
     function fetchLogs() {

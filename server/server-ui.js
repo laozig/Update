@@ -138,6 +138,33 @@ const addLog = (message) => {
 loadConfig();
 addLog('控制面板服务启动');
 
+// 检查API服务器是否已经在运行
+const checkApiServerStatus = () => {
+  const client = new net.Socket();
+  client.setTimeout(500);
+  
+  client.connect(config.server.port, '127.0.0.1', () => {
+    client.destroy();
+    serverRunning = true;
+    console.log('API服务器已在运行');
+    addLog('检测到API服务器已在运行');
+  });
+  
+  client.on('error', () => {
+    serverRunning = false;
+    console.log('API服务器未运行');
+  });
+  
+  client.on('timeout', () => {
+    serverRunning = false;
+    console.log('API服务器连接超时');
+    client.destroy();
+  });
+};
+
+// 启动时检查API服务器状态
+checkApiServerStatus();
+
 // 中间件
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
@@ -662,32 +689,118 @@ app.post('/api/projects/:projectId/reset-key', (req, res) => {
   }
 });
 
-app.get('/status', (req, res) => {
+app.get('/status', authenticateJWT, (req, res) => {
   const client = new net.Socket();
   let responded = false;
   client.setTimeout(500);
+  
+  // 尝试连接API服务器端口
   client.connect(config.server.port, '127.0.0.1', () => {
     responded = true;
     client.destroy();
     res.json({ running: true });
+    console.log('API服务器状态检查: 运行中');
   });
-  client.on('error', () => {
+  
+  client.on('error', (err) => {
     if (!responded) {
       responded = true;
       res.json({ running: false });
+      console.log('API服务器状态检查: 已停止 (连接错误)');
     }
   });
+  
   client.on('timeout', () => {
     if (!responded) {
       responded = true;
       res.json({ running: false });
+      console.log('API服务器状态检查: 已停止 (连接超时)');
     }
     client.destroy();
   });
 });
 
-app.get('/logs', (req, res) => {
+app.get('/logs', authenticateJWT, (req, res) => {
   res.json({ logs: serverLogs });
+});
+
+// 启动API服务器
+app.post('/start', authenticateJWT, (req, res) => {
+  try {
+    // 验证权限
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({ error: '只有管理员可以启动服务器' });
+    }
+    
+    // 如果服务器已经在运行，则返回
+    if (serverRunning) {
+      return res.json({ running: true, message: '服务器已经在运行中' });
+    }
+    
+    // 启动API服务器
+    const serverPath = path.join(__dirname, 'index.js');
+    serverProcess = spawn('node', [serverPath], {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    
+    // 处理服务器输出
+    serverProcess.stdout.on('data', (data) => {
+      const message = data.toString().trim();
+      addLog(`[API] ${message}`);
+    });
+    
+    // 处理服务器错误
+    serverProcess.stderr.on('data', (data) => {
+      const message = data.toString().trim();
+      addLog(`[API错误] ${message}`);
+    });
+    
+    // 处理服务器退出
+    serverProcess.on('close', (code) => {
+      addLog(`API服务器已停止，退出代码: ${code}`);
+      serverRunning = false;
+    });
+    
+    serverRunning = true;
+    addLog(`管理员 ${req.user.username} 启动了API服务器`);
+    
+    res.json({ running: true, message: '服务器已启动' });
+  } catch (error) {
+    console.error('启动服务器错误:', error);
+    res.status(500).json({ error: '启动服务器失败', details: error.message });
+  }
+});
+
+// 停止API服务器
+app.post('/stop', authenticateJWT, (req, res) => {
+  try {
+    // 验证权限
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({ error: '只有管理员可以停止服务器' });
+    }
+    
+    // 如果服务器没有运行，则返回
+    if (!serverRunning || !serverProcess) {
+      return res.json({ running: false, message: '服务器已经停止' });
+    }
+    
+    // 在Windows上使用taskkill，在其他系统上使用kill
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', serverProcess.pid, '/f', '/t']);
+    } else {
+      process.kill(-serverProcess.pid, 'SIGINT');
+    }
+    
+    serverProcess = null;
+    serverRunning = false;
+    addLog(`管理员 ${req.user.username} 停止了API服务器`);
+    
+    res.json({ running: false, message: '服务器已停止' });
+  } catch (error) {
+    console.error('停止服务器错误:', error);
+    res.status(500).json({ error: '停止服务器失败', details: error.message });
+  }
 });
 
 // 获取项目版本列表
