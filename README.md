@@ -252,104 +252,7 @@
 *   在浏览器中打开: `http://<YOUR_SERVER_IP_OR_DOMAIN>:<adminPort>` (例如 `http://yourserver.com:8080`)。
 *   使用您在 `server/config.json` 中设置的 `adminUsername` 和 `adminPassword` 登录。
 
-### 7.6. Docker部署（可选）
 
-本项目支持使用Docker进行容器化部署，这是一种可选的部署方式，不是必须的。Docker提供了一种隔离的、可移植的环境，使应用程序可以在任何支持Docker的系统上一致地运行。
-
-> **注意**: 如果您尚未安装Docker，可以参考 [Docker安装指南](docker/INSTALL.md) 进行安装。详细的Docker部署文档请查看 [Docker部署详细指南](docker/README.md)。
-
-#### 7.6.1. Docker部署优势
-
-- **环境一致性**：消除"在我的机器上可以运行"的问题
-- **快速部署**：简化安装过程，无需手动配置Node.js环境
-- **资源隔离**：应用程序运行在独立容器中，不影响宿主系统
-- **版本控制**：容器镜像可以被标记和版本化，便于回滚
-- **水平扩展**：便于在多个实例间进行负载均衡（如果需要）
-
-#### 7.6.2. Docker部署步骤
-
-1. **安装Docker**：
-   ```bash
-   # 对于Ubuntu
-   sudo apt update
-   sudo apt install docker.io docker-compose
-   sudo systemctl enable --now docker
-   
-   # 对于CentOS
-   sudo yum install -y docker
-   sudo systemctl enable --now docker
-   ```
-
-2. **创建Dockerfile**：
-   在项目根目录创建`Dockerfile`文件：
-   ```dockerfile
-   FROM node:16-alpine
-   
-   WORKDIR /app
-   
-   COPY package*.json ./
-   RUN npm install
-   
-   COPY . .
-   
-   EXPOSE 3000 8080
-   
-   CMD ["node", "server/index.js"]
-   ```
-
-3. **创建docker-compose.yml**：
-   ```yaml
-   version: '3'
-   services:
-     update-api:
-       build: .
-       ports:
-         - "3000:3000"
-       volumes:
-         - ./server/config.json:/app/server/config.json
-         - ./server/projects:/app/server/projects
-       command: node server/index.js
-       restart: unless-stopped
-     
-     update-ui:
-       build: .
-       ports:
-         - "8080:8080"
-       volumes:
-         - ./server/config.json:/app/server/config.json
-         - ./server/projects:/app/server/projects
-         - ./server.log:/app/server.log
-       command: node server/server-ui.js
-       restart: unless-stopped
-   ```
-
-4. **构建和启动容器**：
-   ```bash
-   docker-compose up -d
-   ```
-
-5. **查看日志**：
-   ```bash
-   # API服务日志
-   docker-compose logs -f update-api
-   
-   # 控制面板服务日志
-   docker-compose logs -f update-ui
-   ```
-
-6. **停止服务**：
-   ```bash
-   docker-compose down
-   ```
-
-#### 7.6.3. 注意事项
-
-- **配置文件**：通过卷挂载，`config.json`和项目文件夹在容器外部保存，便于备份和修改
-- **数据持久化**：确保`server/projects`目录被正确挂载，以保证上传的文件不会在容器重启时丢失
-- **网络配置**：如果使用反向代理（如Nginx），需要适当配置网络以转发到Docker容器的端口
-- **资源限制**：可以在`docker-compose.yml`中添加资源限制（如内存、CPU）以优化性能
-
-Docker部署是完全可选的，您可以根据自己的需求和偏好选择传统部署或Docker部署。对于不熟悉Docker的用户，传统部署方式同样有效且更加直观。
 
 ## 8. 主要API端点
 
@@ -488,51 +391,51 @@ Update/
 
 [MIT](LICENSE)
 
-## 8. 代码仓库管理
+## 17. 代码仓库管理
 
-### 8.1. Git版本控制
+### 17.1. Git版本控制
 
 本项目使用Git进行版本控制。以下文件和目录被配置为不会提交到Git仓库中：
 
-#### 8.1.1. 配置和敏感信息
+#### 17.1.1. 配置和敏感信息
 - **`server/config.json`**: 包含服务器配置、API密钥和用户信息，属于敏感信息
 - **`.env` 和 `.env.*`文件**: 环境变量配置，可能包含密钥和密码
 - **证书文件**: 如`.pem`, `.key`, `.cert`, `.crt`等SSL/TLS证书文件
 
-#### 8.1.2. 项目数据
+#### 17.1.2. 项目数据
 - **`server/projects/*/uploads/*`**: 各项目上传的应用程序文件，这些通常体积较大且应由服务器动态管理
 - **`server/projects/*/version.json`**: 项目版本记录，应由运行中的服务器维护而非版本控制
 - **应用程序文件**: 如`.exe`, `.zip`, `.dmg`, `.pkg`, `.msi`, `.deb`, `.rpm`, `.appimage`等
 
-#### 8.1.3. 依赖和生成文件
+#### 17.1.3. 依赖和生成文件
 - **`node_modules/`**: npm依赖目录，应通过`npm install`重新生成
 - **`package-lock.json`**: npm依赖锁定文件，可能因环境差异导致冲突
 - **构建输出**: 如`dist/`, `build/`, `out/`等编译生成的目录
 
-#### 8.1.4. 日志和临时文件
+#### 17.1.4. 日志和临时文件
 - **`logs/`和`*.log`文件**: 服务器运行日志，包括`server.log`
 - **临时文件**: 如`.temp/`, `.tmp/`, `*.tmp`等临时生成的文件
 - **缓存文件**: 如`.cache/`等缓存目录
 
-#### 8.1.5. 开发环境文件
+#### 17.1.5. 开发环境文件
 - **IDE配置**: 如`.idea/`, `.vscode/`等编辑器特定配置
 - **系统文件**: 如`.DS_Store`, `Thumbs.db`等操作系统生成的文件
 
-### 8.2. 目录结构保留
+### 17.2. 目录结构保留
 
 为了确保项目结构完整，以下空目录会通过`.gitkeep`文件保留在仓库中：
 
 - **`server/projects/*/uploads/`**: 通过`!server/projects/*/uploads/.gitkeep`保留
 - **其他空目录**: 通过`!.gitkeep`保留
 
-### 8.3. 首次部署注意事项
+### 17.3. 首次部署注意事项
 
 首次部署时，需要手动创建以下文件：
 
 1. **`server/config.json`**: 从`server/config.example.json`复制并修改
 2. **项目目录结构**: 服务器会自动创建`server/projects/[项目ID]/uploads/`目录
 
-### 8.4. 更新部署流程
+### 17.4. 更新部署流程
 
 更新现有部署时，请注意以下事项：
 
