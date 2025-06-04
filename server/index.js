@@ -124,13 +124,22 @@ app.use(cors({
     const allowedOrigins = [
       `http://${config.server.serverIp || 'update.tangyun.lat'}`,
       `https://${config.server.serverIp || 'update.tangyun.lat'}`,
+      `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}`,
+      `https://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}`,
+      `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.adminPort}`,
+      `https://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.adminPort}`,
+      'http://localhost',
       'http://localhost:8080',
-      'http://localhost:3000'
+      'http://localhost:3000',
+      'http://127.0.0.1',
+      'http://127.0.0.1:8080',
+      'http://127.0.0.1:3000'
     ];
-    // 允许没有来源的请求（如移动应用）
+    // 允许没有来源的请求（如移动应用）或允许的来源
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
+      console.log(`CORS拒绝来源: ${origin}`);
       callback(new Error('不允许的来源'));
     }
   },
