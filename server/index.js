@@ -378,9 +378,9 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
 app.get('/download/:projectId/latest', (req, res) => {
   const { projectId } = req.params;
   
-  // 检查项目是否存在
-  const project = config.projects.find(p => p.id === projectId);
-  if (!project) {
+  // 检查项目目录是否存在
+  const projectDir = path.join(__dirname, 'projects', projectId);
+  if (!fs.existsSync(projectDir)) {
     return res.status(404).json({ error: '项目不存在' });
   }
   
@@ -420,9 +420,9 @@ app.get('/download/:projectId/latest', (req, res) => {
 app.get('/download/:projectId/:version', (req, res) => {
   const { projectId, version } = req.params;
   
-  // 检查项目是否存在
-  const project = config.projects.find(p => p.id === projectId);
-  if (!project) {
+  // 检查项目目录是否存在
+  const projectDir = path.join(__dirname, 'projects', projectId);
+  if (!fs.existsSync(projectDir)) {
     return res.status(404).json({ error: '项目不存在' });
   }
   
@@ -440,18 +440,28 @@ app.get('/download/:projectId/:version', (req, res) => {
   
   // 如果找不到文件，尝试查找匹配版本号的文件
   if (!fs.existsSync(filePath)) {
+    console.log(`文件 ${filePath} 不存在，尝试查找包含版本号 ${version} 的文件`);
     const files = fs.readdirSync(uploadsDir);
+    
     // 查找包含版本号的文件，支持下划线或连字符连接
     const versionFile = files.find(file => 
       file.includes(`_${version}.`) || 
-      file.includes(`-${version}.`)
+      file.includes(`-${version}.`) ||
+      file.includes(`_${version}`) || 
+      file.includes(`-${version}`)
     );
+    
     if (versionFile) {
       filePath = path.join(uploadsDir, versionFile);
+      console.log(`找到匹配的文件: ${versionFile}`);
+    } else {
+      console.log(`在 ${uploadsDir} 目录中没有找到包含版本号 ${version} 的文件`);
+      console.log(`目录中的文件: ${files.join(', ')}`);
     }
   }
   
   if (fs.existsSync(filePath)) {
+    console.log(`下载文件: ${filePath}`);
     res.download(filePath);
   } else {
     res.status(404).json({ error: `文件 ${versionInfo.fileName} 不存在` });

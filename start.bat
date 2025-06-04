@@ -10,15 +10,15 @@ for /F "tokens=1,2 delims=#" %%a in ('"prompt #$H#$E# & echo on & for %%b in (1)
 )
 
 REM 显示带颜色的信息
-call :colorEcho 0B "[信息] 更新服务器一键式安装和启动脚本"
+call :colorEcho 0B "[INFO] Update Server Installation and Startup Script"
 echo.
 echo ================================================
-echo        更新服务器一键式安装和启动脚本
+echo        Update Server Installation and Startup Script
 echo ================================================
 echo.
 
 REM 显示当前目录
-call :colorEcho 0B "[信息] 当前目录: %cd%"
+call :colorEcho 0B "[INFO] Current directory: %cd%"
 echo.
 
 REM 检查参数
@@ -36,86 +36,86 @@ call :status
 goto :end
 
 :install
-call :colorEcho 0B "[信息] 开始安装依赖..."
+call :colorEcho 0B "[INFO] Starting installation..."
 echo.
 
 REM 检查node是否安装
 where node >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
-  call :colorEcho 0C "[错误] 未检测到Node.js，请先安装Node.js"
+  call :colorEcho 0C "[ERROR] Node.js not detected, please install Node.js first"
   echo.
   exit /b 1
 )
 
-call :colorEcho 0B "[信息] Node.js版本:"
+call :colorEcho 0B "[INFO] Node.js version:"
 node -v
-call :colorEcho 0B "[信息] NPM版本:"
+call :colorEcho 0B "[INFO] NPM version:"
 npm -v
 echo.
 
 REM 安装Node.js依赖
-call :colorEcho 0B "[信息] 安装Node.js依赖..."
+call :colorEcho 0B "[INFO] Installing Node.js dependencies..."
 echo.
 call npm install
 
 REM 确保bcryptjs模块已安装
-call :colorEcho 0B "[信息] 确保bcryptjs模块已安装..."
+call :colorEcho 0B "[INFO] Ensuring bcryptjs module is installed..."
 echo.
 call npm install bcryptjs --save
 
 REM 创建必要的目录
-call :colorEcho 0B "[信息] 创建必要的目录..."
+call :colorEcho 0B "[INFO] Creating necessary directories..."
 echo.
 if not exist server\projects mkdir server\projects
 
 REM 确保配置文件存在
-call :colorEcho 0B "[信息] 检查配置文件..."
+call :colorEcho 0B "[INFO] Checking configuration file..."
 echo.
 if not exist server\config.json (
-  call :colorEcho 0B "[信息] 创建默认配置文件..."
+  call :colorEcho 0B "[INFO] Creating default configuration file..."
   echo.
   if exist server\config.example.json (
     copy server\config.example.json server\config.json
   ) else (
-    echo {"projects":[],"users":[{"username":"admin","password":"admin","role":"admin","email":"admin@example.com","createdAt":"%date% %time%"}],"server":{"serverIp":"update.tangyun.lat","port":3000,"adminPort":8080,"jwtSecret":"your-secret-key-change-this-in-production","jwtExpiry":"24h"},"roles":[{"id":"admin","name":"管理员","description":"系统管理员，拥有所有权限","permissions":["all"],"isSystem":true},{"id":"user","name":"普通用户","description":"普通用户，只能管理自己的项目","permissions":["manage_own_projects"],"isSystem":true}]} > server\config.json
+    echo {"projects":[],"users":[{"username":"admin","password":"admin","role":"admin","email":"admin@example.com","createdAt":"%date% %time%"}],"server":{"serverIp":"update.tangyun.lat","port":3000,"adminPort":8080,"jwtSecret":"your-secret-key-change-this-in-production","jwtExpiry":"24h"},"roles":[{"id":"admin","name":"Admin","description":"System administrator with all permissions","permissions":["all"],"isSystem":true},{"id":"user","name":"User","description":"Regular user, can only manage own projects","permissions":["manage_own_projects"],"isSystem":true}]} > server\config.json
   )
 )
 
-call :colorEcho 0A "[成功] 依赖安装完成！"
+call :colorEcho 0A "[SUCCESS] Dependencies installed!"
 echo.
 exit /b 0
 
 :start
-call :colorEcho 0B "[信息] 正在启动服务..."
+call :colorEcho 0B "[INFO] Starting services..."
 echo.
 
 REM 检查API服务器是否已在运行
 tasklist /fi "imagename eq node.exe" /v | find "server/index.js" >nul
 if %ERRORLEVEL% EQU 0 (
-  call :colorEcho 0E "[警告] API服务器已在运行中"
+  call :colorEcho 0E "[WARNING] API server is already running"
   echo.
 ) else (
-  call :colorEcho 0B "[信息] 启动API服务器..."
+  call :colorEcho 0B "[INFO] Starting API server..."
   echo.
   start /b cmd /c "node server/index.js > api-server.log 2>&1"
-  call :colorEcho 0A "[成功] API服务器已启动"
+  call :colorEcho 0A "[SUCCESS] API server started"
   echo.
 )
 
 REM 检查控制面板是否已在运行
 tasklist /fi "imagename eq node.exe" /v | find "server/server-ui.js" >nul
 if %ERRORLEVEL% EQU 0 (
-  call :colorEcho 0E "[警告] 控制面板已在运行中"
+  call :colorEcho 0E "[WARNING] Control panel is already running"
   echo.
 ) else (
-  call :colorEcho 0B "[信息] 启动控制面板..."
+  call :colorEcho 0B "[INFO] Starting control panel..."
   echo.
   start /b cmd /c "node server/server-ui.js > ui-server.log 2>&1"
-  call :colorEcho 0A "[成功] 控制面板已启动"
+  call :colorEcho 0A "[SUCCESS] Control panel started"
   echo.
 )
 
-call :colorEcho 0A "[成功] 所有服务已启动！"
+call :colorEcho 0A "[SUCCESS] All services started!"
 echo.
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| find "IPv4"') do (
   set IP=%%a
@@ -123,31 +123,31 @@ for /f "tokens=2 delims=:" %%a in ('ipconfig ^| find "IPv4"') do (
   goto :foundIP
 )
 :foundIP
-call :colorEcho 0B "[信息] API服务器运行在: http://%IP%:3000"
+call :colorEcho 0B "[INFO] API server running at: http://%IP%:3000"
 echo.
-call :colorEcho 0B "[信息] 控制面板运行在: http://%IP%:8080"
+call :colorEcho 0B "[INFO] Control panel running at: http://%IP%:8080"
 echo.
 echo.
-call :colorEcho 0B "[信息] 日志文件:"
+call :colorEcho 0B "[INFO] Log files:"
 echo.
-call :colorEcho 0B "[信息] - API服务器: api-server.log"
+call :colorEcho 0B "[INFO] - API server: api-server.log"
 echo.
-call :colorEcho 0B "[信息] - 控制面板: ui-server.log"
+call :colorEcho 0B "[INFO] - Control panel: ui-server.log"
 echo.
 exit /b 0
 
 :stop
-call :colorEcho 0B "[信息] 正在停止服务..."
+call :colorEcho 0B "[INFO] Stopping services..."
 echo.
 
 REM 停止API服务器
 tasklist /fi "imagename eq node.exe" /v | find "server/index.js" >nul
 if %ERRORLEVEL% EQU 0 (
   taskkill /f /im node.exe /fi "windowtitle eq *server/index.js*" >nul 2>&1
-  call :colorEcho 0A "[成功] API服务器已停止"
+  call :colorEcho 0A "[SUCCESS] API server stopped"
   echo.
 ) else (
-  call :colorEcho 0E "[警告] API服务器未在运行"
+  call :colorEcho 0E "[WARNING] API server is not running"
   echo.
 )
 
@@ -155,14 +155,14 @@ REM 停止控制面板
 tasklist /fi "imagename eq node.exe" /v | find "server/server-ui.js" >nul
 if %ERRORLEVEL% EQU 0 (
   taskkill /f /im node.exe /fi "windowtitle eq *server/server-ui.js*" >nul 2>&1
-  call :colorEcho 0A "[成功] 控制面板已停止"
+  call :colorEcho 0A "[SUCCESS] Control panel stopped"
   echo.
 ) else (
-  call :colorEcho 0E "[警告] 控制面板未在运行"
+  call :colorEcho 0E "[WARNING] Control panel is not running"
   echo.
 )
 
-call :colorEcho 0A "[成功] 所有服务已停止"
+call :colorEcho 0A "[SUCCESS] All services stopped"
 echo.
 exit /b 0
 
@@ -174,26 +174,26 @@ exit /b 0
 
 :status
 echo.
-call :colorEcho 0B "[信息] 检查服务状态..."
+call :colorEcho 0B "[INFO] Checking service status..."
 echo.
 
 REM 检查API服务器
 tasklist /fi "imagename eq node.exe" /v | find "server/index.js" >nul
 if %ERRORLEVEL% EQU 0 (
-  call :colorEcho 0A "[成功] API服务器正在运行"
+  call :colorEcho 0A "[SUCCESS] API server is running"
   echo.
 ) else (
-  call :colorEcho 0E "[警告] API服务器未在运行"
+  call :colorEcho 0E "[WARNING] API server is not running"
   echo.
 )
 
 REM 检查控制面板
 tasklist /fi "imagename eq node.exe" /v | find "server/server-ui.js" >nul
 if %ERRORLEVEL% EQU 0 (
-  call :colorEcho 0A "[成功] 控制面板正在运行"
+  call :colorEcho 0A "[SUCCESS] Control panel is running"
   echo.
 ) else (
-  call :colorEcho 0E "[警告] 控制面板未在运行"
+  call :colorEcho 0E "[WARNING] Control panel is not running"
   echo.
 )
 
@@ -201,17 +201,17 @@ echo.
 exit /b 0
 
 :help
-echo 用法: %0 [选项]
+echo Usage: %0 [option]
 echo.
-echo 选项:
-echo   install    安装依赖
-echo   start      启动所有服务
-echo   stop       停止所有服务
-echo   restart    重启所有服务
-echo   status     检查服务状态
-echo   help       显示此帮助信息
+echo Options:
+echo   install    Install dependencies
+echo   start      Start all services
+echo   stop       Stop all services
+echo   restart    Restart all services
+echo   status     Check service status
+echo   help       Show this help message
 echo.
-echo 如果不提供选项，将执行安装和启动操作。
+echo If no option is provided, install and start will be executed.
 exit /b 0
 
 :colorEcho
@@ -224,6 +224,6 @@ exit /b 0
 
 :end
 echo.
-call :colorEcho 0A "[成功] 操作完成！"
+call :colorEcho 0A "[SUCCESS] Operation completed!"
 echo.
 pause 
