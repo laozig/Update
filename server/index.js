@@ -23,6 +23,63 @@ let config = {
   }
 };
 
+// 日志配置
+const MAX_LOG_SIZE = 10 * 1024 * 1024; // 日志文件最大大小（10MB）
+const MAX_LOG_FILES = 5; // 最多保留的日志文件数量
+
+// 日志文件轮转
+const rotateLogFiles = (logFileName) => {
+  try {
+    const baseLogPath = path.join(__dirname, '..', logFileName);
+    
+    // 删除最老的日志文件（如果存在）
+    const oldestLogPath = `${baseLogPath}.${MAX_LOG_FILES}`;
+    if (fs.existsSync(oldestLogPath)) {
+      fs.unlinkSync(oldestLogPath);
+    }
+    
+    // 将现有的日志文件依次重命名
+    for (let i = MAX_LOG_FILES - 1; i >= 1; i--) {
+      const currentLogPath = `${baseLogPath}.${i}`;
+      const newLogPath = `${baseLogPath}.${i + 1}`;
+      
+      if (fs.existsSync(currentLogPath)) {
+        fs.renameSync(currentLogPath, newLogPath);
+      }
+    }
+    
+    // 重命名当前日志文件
+    if (fs.existsSync(baseLogPath)) {
+      fs.renameSync(baseLogPath, `${baseLogPath}.1`);
+    }
+    
+    console.log(`日志文件 ${logFileName} 已轮转`);
+  } catch (err) {
+    console.error(`日志轮转失败 ${logFileName}:`, err);
+  }
+};
+
+// 检查并轮转日志文件
+const checkAndRotateLogs = () => {
+  const logFiles = ['api-server.log', 'ui-server.log', 'server.log'];
+  
+  logFiles.forEach(logFile => {
+    const logFilePath = path.join(__dirname, '..', logFile);
+    if (fs.existsSync(logFilePath)) {
+      const stats = fs.statSync(logFilePath);
+      if (stats.size >= MAX_LOG_SIZE) {
+        rotateLogFiles(logFile);
+      }
+    }
+  });
+};
+
+// 定期检查日志大小（每小时检查一次）
+setInterval(checkAndRotateLogs, 60 * 60 * 1000);
+
+// 启动时检查一次日志大小
+checkAndRotateLogs();
+
 // 加载配置文件
 const loadConfig = () => {
   try {

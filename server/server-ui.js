@@ -27,6 +27,8 @@ let serverProcess = null;
 let serverRunning = false;
 let serverLogs = [];
 const MAX_LOGS = 1000; // 最大保存日志行数
+const MAX_LOG_SIZE = 10 * 1024 * 1024; // 日志文件最大大小（10MB）
+const MAX_LOG_FILES = 5; // 最多保留的日志文件数量
 
 // 创建HTTP服务器
 const server = http.createServer(app);
@@ -126,11 +128,56 @@ const addLog = (message) => {
     serverLogs = serverLogs.slice(-MAX_LOGS);
   }
   
-  // 可选：写入日志文件
+  // 写入日志文件（带轮转功能）
   try {
-    fs.appendFileSync(path.join(__dirname, '..', 'server.log'), logEntry + '\n');
+    const logFilePath = path.join(__dirname, '..', 'server.log');
+    
+    // 检查日志文件大小
+    if (fs.existsSync(logFilePath)) {
+      const stats = fs.statSync(logFilePath);
+      
+      // 如果日志文件超过最大大小，进行轮转
+      if (stats.size >= MAX_LOG_SIZE) {
+        rotateLogFiles();
+      }
+    }
+    
+    // 追加日志
+    fs.appendFileSync(logFilePath, logEntry + '\n');
   } catch (err) {
     console.error('写入日志失败:', err);
+  }
+};
+
+// 日志文件轮转
+const rotateLogFiles = () => {
+  try {
+    const baseLogPath = path.join(__dirname, '..', 'server.log');
+    
+    // 删除最老的日志文件（如果存在）
+    const oldestLogPath = `${baseLogPath}.${MAX_LOG_FILES}`;
+    if (fs.existsSync(oldestLogPath)) {
+      fs.unlinkSync(oldestLogPath);
+    }
+    
+    // 将现有的日志文件依次重命名
+    for (let i = MAX_LOG_FILES - 1; i >= 1; i--) {
+      const currentLogPath = `${baseLogPath}.${i}`;
+      const newLogPath = `${baseLogPath}.${i + 1}`;
+      
+      if (fs.existsSync(currentLogPath)) {
+        fs.renameSync(currentLogPath, newLogPath);
+      }
+    }
+    
+    // 重命名当前日志文件
+    if (fs.existsSync(baseLogPath)) {
+      fs.renameSync(baseLogPath, `${baseLogPath}.1`);
+    }
+    
+    console.log('日志文件已轮转');
+  } catch (err) {
+    console.error('日志轮转失败:', err);
   }
 };
 
@@ -722,6 +769,45 @@ app.get('/status', authenticateJWT, (req, res) => {
 
 app.get('/logs', authenticateJWT, (req, res) => {
   res.json({ logs: serverLogs });
+});
+
+// 清理日志文件
+app.post('/api/logs/clean', authenticateJWT, (req, res) => {
+  try {
+    // 验证权限
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({ error: '只有管理员可以清理日志' });
+    }
+    
+    // 清理内存中的日志
+    serverLogs = [];
+    
+    // 轮转所有日志文件
+    const logFiles = ['api-server.log', 'ui-server.log', 'server.log'];
+    logFiles.forEach(logFile => {
+      try {
+        const logFilePath = path.join(__dirname, '..', logFile);
+        if (fs.existsSync(logFilePath)) {
+          // 备份当前日志文件
+          const backupPath = `${logFilePath}.bak.${Date.now()}`;
+          fs.renameSync(logFilePath, backupPath);
+          
+          // 创建新的空日志文件
+          fs.writeFileSync(logFilePath, '');
+          
+          console.log(`日志文件 ${logFile} 已清理并备份为 ${path.basename(backupPath)}`);
+        }
+      } catch (err) {
+        console.error(`清理日志文件 ${logFile} 失败:`, err);
+      }
+    });
+    
+    addLog(`管理员 ${req.user.username} 清理了系统日志`);
+    res.json({ message: '日志已清理' });
+  } catch (error) {
+    console.error('清理日志错误:', error);
+    res.status(500).json({ error: '清理日志失败', details: error.message });
+  }
 });
 
 // 启动API服务器

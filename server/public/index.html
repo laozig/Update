@@ -355,7 +355,17 @@
           </div>
     </div>
     
-        <h4>服务器日志</h4>
+        <h4 class="d-flex justify-content-between align-items-center">
+          服务器日志
+          <div>
+            <button class="btn btn-sm btn-warning" onclick="cleanLogs()">
+              <i class="bi bi-trash"></i> 清理日志
+            </button>
+            <button class="btn btn-sm btn-primary" onclick="fetchLogs()">
+              <i class="bi bi-arrow-clockwise"></i> 刷新
+            </button>
+          </div>
+        </h4>
         <div id="logs" class="log-container mb-4"></div>
 
         <div class="card">
@@ -1988,6 +1998,25 @@
       while (logsContainer.children.length > maxLogs) {
         logsContainer.removeChild(logsContainer.firstChild);
       }
+    }
+
+    // 添加在fetchLogs函数附近
+    function cleanLogs() {
+      if (!confirm('确定要清理所有日志吗？此操作不可恢复。')) {
+        return;
+      }
+      
+      fetchWithAuth('/api/logs/clean', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+          if (data.error) {
+            showAlert('logs', 'error', data.error);
+          } else {
+            showAlert('logs', 'success', '日志已成功清理');
+            fetchLogs(); // 刷新日志显示
+          }
+        })
+        .catch(err => showAlert('logs', 'error', '清理日志失败，请重试'));
     }
   </script>
 </body>
