@@ -8,7 +8,6 @@ const net = require('net');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const http = require('http');
-const WebSocket = require('ws');
 
 // 设置未捕获异常处理
 process.on('uncaughtException', (err) => {
@@ -31,12 +30,6 @@ const MAX_LOGS = 1000; // 最大保存日志行数
 
 // 创建HTTP服务器
 const server = http.createServer(app);
-
-// 创建WebSocket服务器
-const wss = new WebSocket.Server({ server });
-
-// 存储活跃的WebSocket连接
-const activeConnections = new Map();
 
 // JWT密钥
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
@@ -139,153 +132,7 @@ const addLog = (message) => {
   } catch (err) {
     console.error('写入日志失败:', err);
   }
-  
-  // 通过WebSocket广播日志
-  broadcastToAll({
-    type: 'log',
-    message: logEntry
-  });
 };
-
-// WebSocket连接处理
-wss.on('connection', (ws, req) => {
-  console.log('新的WebSocket连接');
-  
-  // 为连接分配一个唯一ID
-  const connectionId = crypto.randomUUID();
-  activeConnections.set(connectionId, { ws, user: null });
-  
-  // 处理消息
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message);
-      
-      // 处理认证消息
-      if (data.type === 'auth' && data.token) {
-        jwt.verify(data.token, JWT_SECRET, (err, user) => {
-          if (err) {
-            ws.send(JSON.stringify({
-              type: 'auth_error',
-              message: '无效或过期的令牌'
-            }));
-            return;
-          }
-          
-          // 保存用户信息
-          const connection = activeConnections.get(connectionId);
-          if (connection) {
-            connection.user = user;
-            activeConnections.set(connectionId, connection);
-            
-            // 发送认证成功消息
-            ws.send(JSON.stringify({
-              type: 'auth_success',
-              user: {
-                username: user.username,
-                role: user.role
-              }
-            }));
-            
-            console.log(`WebSocket用户已认证: ${user.username}`);
-          }
-        });
-      }
-    } catch (error) {
-      console.error('处理WebSocket消息时出错:', error);
-    }
-  });
-  
-  // 处理连接关闭
-  ws.on('close', () => {
-    console.log('WebSocket连接已关闭');
-    activeConnections.delete(connectionId);
-  });
-  
-  // 处理错误
-  ws.on('error', (error) => {
-    console.error('WebSocket错误:', error);
-    activeConnections.delete(connectionId);
-  });
-  
-  // 发送初始状态
-  ws.send(JSON.stringify({
-    type: 'server_status',
-    running: serverRunning
-  }));
-});
-
-// 向所有连接的客户端广播消息
-function broadcastToAll(message) {
-  try {
-    const messageStr = JSON.stringify(message);
-    activeConnections.forEach(({ ws }) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        try {
-          ws.send(messageStr);
-        } catch (err) {
-          console.error('发送WebSocket消息失败:', err);
-        }
-      }
-    });
-  } catch (err) {
-    console.error('广播消息失败:', err);
-  }
-}
-
-// 向特定角色的用户广播消息
-function broadcastToRole(message, role) {
-  try {
-    const messageStr = JSON.stringify(message);
-    activeConnections.forEach(({ ws, user }) => {
-      if (ws.readyState === WebSocket.OPEN && user && (user.role === role || user.role === 'admin')) {
-        try {
-          ws.send(messageStr);
-        } catch (err) {
-          console.error('发送角色WebSocket消息失败:', err);
-        }
-      }
-    });
-  } catch (err) {
-    console.error('角色广播消息失败:', err);
-  }
-}
-
-// 向特定用户广播消息
-function broadcastToUser(message, username) {
-  try {
-    const messageStr = JSON.stringify(message);
-    activeConnections.forEach(({ ws, user }) => {
-      if (ws.readyState === WebSocket.OPEN && user && user.username === username) {
-        try {
-          ws.send(messageStr);
-        } catch (err) {
-          console.error(`发送用户(${username})WebSocket消息失败:`, err);
-        }
-      }
-    });
-  } catch (err) {
-    console.error(`用户(${username})广播消息失败:`, err);
-  }
-}
-
-// 发送通知
-function sendNotification(title, message, level = 'info', role = null, username = null) {
-  const notification = {
-    type: 'notification',
-    title,
-    message,
-    level,
-    timestamp: new Date().toISOString()
-  };
-  
-  if (username) {
-    broadcastToUser(notification, username);
-  } else if (role) {
-    broadcastToRole(notification, role);
-  } else {
-    broadcastToAll(notification);
-  }
-}
 
 // 初始化加载配置
 loadConfig();
@@ -1560,6 +1407,41 @@ app.delete('/api/roles/:roleId', (req, res) => {
     res.status(500).json({ error: '服务器内部错误' });
   }
 });
+
+// 替换WebSocket广播函数
+function broadcastToAll(message) {
+  // WebSocket广播已移除
+  console.log('通知消息:', message);
+}
+
+function broadcastToRole(message, role) {
+  // WebSocket广播已移除
+  console.log(`发送给角色 ${role} 的通知:`, message);
+}
+
+function broadcastToUser(message, username) {
+  // WebSocket广播已移除
+  console.log(`发送给用户 ${username} 的通知:`, message);
+}
+
+// 发送通知
+function sendNotification(title, message, level = 'info', role = null, username = null) {
+  const notification = {
+    type: 'notification',
+    title,
+    message,
+    level,
+    timestamp: new Date().toISOString()
+  };
+  
+  if (username) {
+    broadcastToUser(notification, username);
+  } else if (role) {
+    broadcastToRole(notification, role);
+  } else {
+    broadcastToAll(notification);
+  }
+}
 
 // 启动服务器
 server.listen(config.server.adminPort, () => {

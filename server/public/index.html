@@ -913,13 +913,6 @@
       setInterval(checkServerStatus, 5000);
       setInterval(fetchLogs, 3000);
       
-      // 初始化WebSocket连接
-      try {
-        initWebSocket();
-      } catch (error) {
-        console.error('初始化WebSocket失败:', error);
-      }
-      
       // 请求通知权限
       requestNotificationPermission();
     });
@@ -1903,104 +1896,9 @@
       }
     });
     
-    // WebSocket连接管理
-    let socket = null;
+    // WebSocket连接管理已移除
     
-    // 初始化WebSocket连接
-    function initWebSocket() {
-      try {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.host;
-        const wsUrl = `${protocol}//${host}/ws`;
-        
-        // 如果已有连接，先关闭
-        if (socket && socket.readyState !== WebSocket.CLOSED) {
-          socket.close();
-        }
-        
-        socket = new WebSocket(wsUrl);
-        
-        socket.onopen = function() {
-          console.log('WebSocket连接已建立');
-          // 发送认证信息
-          const token = localStorage.getItem('authToken');
-          if (token) {
-            try {
-              socket.send(JSON.stringify({ type: 'auth', token }));
-            } catch (error) {
-              console.error('发送WebSocket认证消息失败:', error);
-            }
-          }
-        };
-        
-        socket.onmessage = function(event) {
-          try {
-            const data = JSON.parse(event.data);
-            handleWebSocketMessage(data);
-          } catch (error) {
-            console.error('处理WebSocket消息时出错:', error);
-          }
-        };
-        
-        socket.onclose = function(event) {
-          console.log('WebSocket连接已关闭:', event.code, event.reason);
-          // 尝试在一段时间后重新连接
-          setTimeout(initWebSocket, 5000);
-        };
-        
-        socket.onerror = function(error) {
-          console.error('WebSocket错误:', error);
-          // 错误发生时不需要手动重连，onclose会被触发并处理重连
-        };
-      } catch (error) {
-        console.error('初始化WebSocket连接失败:', error);
-        // 如果初始化失败，延迟后重试
-        setTimeout(initWebSocket, 5000);
-      }
-    }
-    
-    // 处理WebSocket消息
-    function handleWebSocketMessage(data) {
-      switch (data.type) {
-        case 'notification':
-          showNotification(data.title, data.message, data.level || 'info');
-          break;
-          
-        case 'server_status':
-          updateStatus(data.running);
-          break;
-          
-        case 'log':
-          appendLog(data.message);
-          break;
-          
-        case 'project_update':
-          if (data.action === 'created' || data.action === 'updated' || data.action === 'deleted') {
-            loadProjects();
-          }
-          break;
-          
-        case 'version_update':
-          if (currentProject === data.projectId) {
-            fetchVersions(currentProject);
-          }
-          break;
-          
-        case 'user_update':
-          if (document.getElementById('usersTab').classList.contains('active')) {
-            loadUsers();
-          }
-          break;
-          
-        case 'role_update':
-          if (document.getElementById('rolesTab').classList.contains('active')) {
-            loadRoles();
-          }
-          break;
-      }
-    }
-    
-    // 显示桌面通知
+    // 显示通知
     function showNotification(title, message, level = 'info') {
       // 创建通知元素
       const notification = document.createElement('div');
