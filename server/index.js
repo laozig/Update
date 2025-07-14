@@ -179,18 +179,12 @@ const checkProjectOwnership = (req, res, next) => {
 app.use(cors({
   origin: function(origin, callback) {
     const allowedOrigins = [
-      `http://${config.server.serverIp || 'update.tangyun.lat'}`,
-      `https://${config.server.serverIp || 'update.tangyun.lat'}`,
-      `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}`,
-      `https://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}`,
-      `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.adminPort}`,
-      `https://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.adminPort}`,
+      `http://${config.server.serverIp || 'localhost'}`,
+      `https://${config.server.serverIp || 'localhost'}`,
       'http://localhost',
-      'http://localhost:8080',
-      'http://localhost:3000',
+      'https://localhost',
       'http://127.0.0.1',
-      'http://127.0.0.1:8080',
-      'http://127.0.0.1:3000'
+      'https://127.0.0.1'
     ];
     // 允许没有来源的请求（如移动应用）或允许的来源
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
@@ -267,7 +261,7 @@ const loadVersions = (projectId) => {
       versions.forEach(version => {
         // 修复旧数据中可能不完整的downloadUrl
         if (!version.downloadUrl.startsWith('http') || version.downloadUrl.includes('undefined')) {
-          version.downloadUrl = `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}/download/${projectId}/${version.version}`;
+          version.downloadUrl = `http://${config.server.serverIp || 'localhost'}/download/${projectId}/${version.version}`;
         }
         
         // 向后兼容：如果旧数据没有 originalFileName，尝试从当前 fileName 推断
@@ -311,7 +305,7 @@ const saveVersions = (projectId, versions) => {
 
 // 初始化加载配置
 loadConfig();
-console.log(`服务器配置已加载，域名: ${config.server.serverIp || 'update.tangyun.lat'}`);
+  console.log(`服务器配置已加载，域名: ${config.server.serverIp || 'localhost'}`);
 
 // 路由
 
@@ -401,7 +395,7 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
     const newVersionInfo = {
       version,
       releaseDate: new Date().toISOString(),
-      downloadUrl: `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}/download/${projectId}/${version}`,
+      downloadUrl: `http://${config.server.serverIp || 'localhost'}/download/${projectId}/${version}`,
       releaseNotes: releaseNotes || `版本 ${version} 更新`,
       fileName: newFileName,                 
       originalFileName: originalNameWithoutExt 
@@ -599,5 +593,5 @@ app.use((err, req, res, next) => {
 
 // 启动服务器
 app.listen(port, () => {
-  console.log(`更新服务器运行在 http://${config.server.serverIp || 'update.tangyun.lat'}:${port}`);
+  console.log(`更新服务器运行在 http://${config.server.serverIp || 'localhost'} (内部端口: ${port})`);
 }); 

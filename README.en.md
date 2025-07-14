@@ -252,6 +252,266 @@ You need to start two Node.js processes: the API service and the control panel s
 *   Open in a browser: `http://<YOUR_SERVER_IP_OR_DOMAIN>:<adminPort>` (e.g., `http://yourserver.com:8080`).
 *   Log in using the `adminUsername` and `adminPassword` you set in `server/config.json`.
 
+### 7.6. Nginx Reverse Proxy Configuration
+
+For production environments, it is strongly recommended to use Nginx as a reverse proxy server to provide HTTPS support, enhanced security, and hide internal service ports.
+
+#### 7.6.1. Installing Nginx
+
+```bash
+# For Debian/Ubuntu systems
+sudo apt update
+sudo apt install nginx
+
+# For CentOS/RHEL systems
+sudo yum install epel-release
+sudo yum install nginx
+```
+
+#### 7.6.2. Creating Nginx Configuration
+
+Create a configuration file at `/etc/nginx/conf.d/update-server.conf` or `/etc/nginx/sites-available/update-server.conf`:
+
+```nginx
+# Define upstream servers - Internal API Service (server/index.js)
+upstream update_api {
+    server 127.0.0.1:3000;
+    keepalive 64;  # Keep-alive connections
+}
+
+# Define upstream servers - Internal Control Panel (server/server-ui.js)
+upstream update_admin {
+    server 127.0.0.1:8080;
+    keepalive 64;  # Keep-alive connections
+}
+
+# Cache settings for static resources and uploaded files
+proxy_cache_path /var/cache/nginx/update_server levels=1:2 keys_zone=update_cache:10m max_size=1g inactive=60m;
+proxy_temp_path /var/cache/nginx/update_temp;
+
+# Basic HTTP server config - Redirect to HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name your-domain.com;  # Replace with your actual domain
+    
+    # Support for ACME validation (Let's Encrypt)
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+    
+    # Redirect all to HTTPS
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# Main HTTPS server configuration
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name your-domain.com;  # Replace with your actual domain
+    
+    # SSL certificate configuration
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;      # Replace with your certificate path
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;    # Replace with your key path
+    ssl_trusted_certificate /etc/letsencrypt/live/your-domain.com/chain.pem;  # Replace with your chain cert path
+    
+    # SSL optimization settings
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_tickets off;
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    
+    # HSTS (optional but recommended)
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    
+    # Security-related headers
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "same-origin" always;
+    
+    # Root path - Control Panel
+    location / {
+        proxy_pass http://update_admin;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering on;
+        
+        # Client timeout settings
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+    
+    # API paths - Version checks, updates, etc.
+    location /api/ {
+        proxy_pass http://update_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Cache settings for specific API paths
+        location /api/version/ {
+            proxy_cache update_cache;
+            proxy_cache_valid 200 1m;  # Cache valid for 1 minute
+            proxy_pass http://update_api;
+        }
+        
+        # No caching for upload API
+        location /api/upload/ {
+            proxy_pass http://update_api;
+            proxy_request_buffering off;  # Disable request buffering for large file uploads
+            client_max_body_size 1000m;   # Maximum upload file size allowed
+            proxy_connect_timeout 300s;   # Upload timeout settings
+            proxy_send_timeout 300s;
+            proxy_read_timeout 300s;
+        }
+    }
+    
+    # Download path - Static files
+    location /download/ {
+        proxy_pass http://update_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Download-related configuration
+        proxy_cache update_cache;
+        proxy_cache_valid 200 1d;  # Cache valid for 1 day
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        proxy_cache_lock on;
+        expires 30d;  # Client-side caching
+        
+        # Optimize large file downloads
+        proxy_buffering on;
+        proxy_buffer_size 128k;
+        proxy_buffers 4 256k;
+        proxy_busy_buffers_size 256k;
+        
+        # Download limits and timeouts
+        client_max_body_size 0;    # No download size limit
+        proxy_read_timeout 600s;   # Download timeout setting
+    }
+    
+    # Static resources - Icons, etc.
+    location ~* \.(ico|jpg|jpeg|png|gif|svg|js|css|html)$ {
+        proxy_pass http://update_admin;
+        proxy_cache update_cache;
+        proxy_cache_valid 200 1d;
+        expires 7d;
+    }
+    
+    # Error pages
+    error_page 404 /error.html;
+    error_page 500 502 503 504 /error.html;
+    location = /error.html {
+        root /var/www/update-server/server/public;
+        internal;
+    }
+    
+    # Access and error logs
+    access_log /var/log/nginx/update-access.log combined buffer=64k flush=5m;
+    error_log /var/log/nginx/update-error.log warn;
+}
+```
+
+#### 7.6.3. Deployment Steps
+
+1. **Create the configuration file**:
+
+```bash
+# For Debian/Ubuntu
+sudo nano /etc/nginx/sites-available/update-server.conf
+# Paste the configuration above, replace your-domain.com with your domain
+
+# Enable the configuration
+sudo ln -s /etc/nginx/sites-available/update-server.conf /etc/nginx/sites-enabled/
+```
+
+```bash
+# For CentOS/RHEL
+sudo nano /etc/nginx/conf.d/update-server.conf
+# Paste the configuration above, replace your-domain.com with your domain
+```
+
+2. **Create cache directories**:
+
+```bash
+sudo mkdir -p /var/cache/nginx/update_server
+sudo mkdir -p /var/cache/nginx/update_temp
+sudo chown -R nginx:nginx /var/cache/nginx
+```
+
+3. **Configure SSL certificates** (using Let's Encrypt):
+
+```bash
+sudo apt install certbot python3-certbot-nginx  # Debian/Ubuntu
+# or
+sudo yum install certbot python3-certbot-nginx  # CentOS/RHEL
+
+# Create verification directory
+sudo mkdir -p /var/www/letsencrypt
+sudo chown nginx:nginx /var/www/letsencrypt
+
+# Obtain certificate
+sudo certbot certonly --webroot -w /var/www/letsencrypt -d your-domain.com
+```
+
+4. **Verify and test the configuration**:
+
+```bash
+sudo nginx -t
+```
+
+5. **Restart Nginx**:
+
+```bash
+sudo systemctl restart nginx
+```
+
+#### 7.6.4. Configuration Details
+
+* **Hidden Internal Ports**: The Nginx proxy will hide internal service ports (3000 and 8080), allowing external users to access through standard HTTP (80) and HTTPS (443) ports only.
+
+* **Path Distribution**:
+  * `/` - All root path requests forwarded to the control panel service (8080)
+  * `/api/` - API requests forwarded to the API service (3000)
+  * `/download/` - Download requests forwarded to the API service (3000)
+
+* **Security Enhancements**:
+  * HTTPS encrypted communication
+  * Modern TLS protocols and cipher suites
+  * Security-related HTTP headers
+  * Forced HTTPS redirection
+
+* **Performance Optimizations**:
+  * Appropriate caching strategies
+  * Optimized large file upload and download handling
+  * HTTP/2 protocol enabled
+
+#### 7.6.5. Important Notes
+
+* **Domain Setting**: Make sure to replace `your-domain.com` with your actual domain.
+* **SSL Certificates**: Adjust certificate paths according to your environment.
+* **Firewall**: Ensure your firewall allows incoming traffic on ports 80 and 443.
+* **System Configuration**: Modify `client_max_body_size` as needed for your maximum upload file sizes.
+* **User Permissions**: Make sure Nginx has permission to access cache directories and log directories.
+
 ## 8. Repository Management
 
 ### 8.1. Git Version Control

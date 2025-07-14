@@ -252,7 +252,265 @@
 *   在浏览器中打开: `http://<YOUR_SERVER_IP_OR_DOMAIN>:<adminPort>` (例如 `http://yourserver.com:8080`)。
 *   使用您在 `server/config.json` 中设置的 `adminUsername` 和 `adminPassword` 登录。
 
+### 7.6. Nginx 反向代理配置
 
+在生产环境中，强烈建议使用 Nginx 作为反向代理服务器，这样可以提供 HTTPS 支持、更好的安全性以及隐藏内部服务端口。
+
+#### 7.6.1. Nginx 安装
+
+```bash
+# Debian/Ubuntu 系统
+sudo apt update
+sudo apt install nginx
+
+# CentOS/RHEL 系统
+sudo yum install epel-release
+sudo yum install nginx
+```
+
+#### 7.6.2. 创建 Nginx 配置
+
+创建配置文件 `/etc/nginx/conf.d/update-server.conf` 或 `/etc/nginx/sites-available/update-server.conf`：
+
+```nginx
+# 定义上游服务器 - 内部API服务 (server/index.js)
+upstream update_api {
+    server 127.0.0.1:3000;
+    keepalive 64;  # 保持连接数
+}
+
+# 定义上游服务器 - 内部控制面板 (server/server-ui.js)
+upstream update_admin {
+    server 127.0.0.1:8080;
+    keepalive 64;  # 保持连接数
+}
+
+# 静态资源和上传文件的缓存设置
+proxy_cache_path /var/cache/nginx/update_server levels=1:2 keys_zone=update_cache:10m max_size=1g inactive=60m;
+proxy_temp_path /var/cache/nginx/update_temp;
+
+# 基本 HTTP 服务器配置 - 重定向到 HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name your-domain.com;  # 替换为您的实际域名
+    
+    # 支持 ACME 验证 (Let's Encrypt)
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+    
+    # 全站重定向到 HTTPS
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# 主 HTTPS 服务器配置
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name your-domain.com;  # 替换为您的实际域名
+    
+    # SSL 证书配置
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;      # 替换为您的证书路径
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;    # 替换为您的私钥路径
+    ssl_trusted_certificate /etc/letsencrypt/live/your-domain.com/chain.pem;  # 替换为您的链证书路径
+    
+    # SSL 配置优化
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_tickets off;
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    
+    # HSTS (可选，但推荐)
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+    
+    # 安全相关头部
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "same-origin" always;
+    
+    # 根路径 - 控制面板
+    location / {
+        proxy_pass http://update_admin;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering on;
+        
+        # 客户端超时配置
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+    
+    # API 路径 - 版本检查、更新等
+    location /api/ {
+        proxy_pass http://update_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # 特定 API 路径的缓存设置
+        location /api/version/ {
+            proxy_cache update_cache;
+            proxy_cache_valid 200 1m;  # 缓存有效期为1分钟
+            proxy_pass http://update_api;
+        }
+        
+        # 不缓存上传 API
+        location /api/upload/ {
+            proxy_pass http://update_api;
+            proxy_request_buffering off;  # 关闭请求缓冲，适合大文件上传
+            client_max_body_size 1000m;   # 允许的最大上传文件大小
+            proxy_connect_timeout 300s;   # 上传超时设置
+            proxy_send_timeout 300s;
+            proxy_read_timeout 300s;
+        }
+    }
+    
+    # 下载路径 - 静态文件
+    location /download/ {
+        proxy_pass http://update_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # 下载相关配置
+        proxy_cache update_cache;
+        proxy_cache_valid 200 1d;  # 缓存有效期为1天
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        proxy_cache_lock on;
+        expires 30d;  # 客户端缓存
+        
+        # 优化大文件下载
+        proxy_buffering on;
+        proxy_buffer_size 128k;
+        proxy_buffers 4 256k;
+        proxy_busy_buffers_size 256k;
+        
+        # 下载限制和超时
+        client_max_body_size 0;    # 无限制下载大小
+        proxy_read_timeout 600s;   # 下载超时设置
+    }
+    
+    # 静态资源 - 图标等
+    location ~* \.(ico|jpg|jpeg|png|gif|svg|js|css|html)$ {
+        proxy_pass http://update_admin;
+        proxy_cache update_cache;
+        proxy_cache_valid 200 1d;
+        expires 7d;
+    }
+    
+    # 错误页面
+    error_page 404 /error.html;
+    error_page 500 502 503 504 /error.html;
+    location = /error.html {
+        root /var/www/update-server/server/public;
+        internal;
+    }
+    
+    # 访问日志和错误日志
+    access_log /var/log/nginx/update-access.log combined buffer=64k flush=5m;
+    error_log /var/log/nginx/update-error.log warn;
+}
+```
+
+#### 7.6.3. 部署步骤
+
+1. **创建配置文件**:
+
+```bash
+# Debian/Ubuntu
+sudo nano /etc/nginx/sites-available/update-server.conf
+# 粘贴上述配置，替换 your-domain.com 为您的域名
+
+# 启用配置
+sudo ln -s /etc/nginx/sites-available/update-server.conf /etc/nginx/sites-enabled/
+```
+
+```bash
+# CentOS/RHEL
+sudo nano /etc/nginx/conf.d/update-server.conf
+# 粘贴上述配置，替换 your-domain.com 为您的域名
+```
+
+2. **创建缓存目录**:
+
+```bash
+sudo mkdir -p /var/cache/nginx/update_server
+sudo mkdir -p /var/cache/nginx/update_temp
+sudo chown -R nginx:nginx /var/cache/nginx
+```
+
+3. **配置SSL证书** (使用Let's Encrypt):
+
+```bash
+sudo apt install certbot python3-certbot-nginx  # Debian/Ubuntu
+# 或
+sudo yum install certbot python3-certbot-nginx  # CentOS/RHEL
+
+# 创建验证目录
+sudo mkdir -p /var/www/letsencrypt
+sudo chown nginx:nginx /var/www/letsencrypt
+
+# 获取证书
+sudo certbot certonly --webroot -w /var/www/letsencrypt -d your-domain.com
+```
+
+4. **验证并测试配置**:
+
+```bash
+sudo nginx -t
+```
+
+5. **重启Nginx**:
+
+```bash
+sudo systemctl restart nginx
+```
+
+#### 7.6.4. 配置说明
+
+* **隐藏内部端口**: Nginx代理将隐藏内部服务的端口(3000和8080)，外部用户只需通过标准HTTP(80)和HTTPS(443)端口访问。
+
+* **路径分发**:
+  * `/` - 所有根路径请求会转发到控制面板服务(8080)
+  * `/api/` - API请求转发到API服务(3000)
+  * `/download/` - 下载请求转发到API服务(3000)
+
+* **安全增强**:
+  * 启用HTTPS加密通信
+  * 配置现代TLS协议和加密套件
+  * 添加安全相关HTTP头部
+  * 实现HTTPS强制重定向
+
+* **性能优化**:
+  * 配置合适的缓存策略
+  * 优化大文件上传和下载
+  * 启用HTTP/2协议
+
+#### 7.6.5. 注意事项
+
+* **域名设置**: 确保使用配置的域名替换`your-domain.com`。
+* **SSL证书**: 证书路径需要根据您的实际环境进行调整。
+* **防火墙**: 确保防火墙允许80和443端口的入站流量。
+* **系统配置**: 根据需要修改`client_max_body_size`，以适应您的最大上传文件大小。
+* **用户权限**: 确保Nginx有权限访问缓存目录和日志目录。
 
 ## 8. 主要API端点
 

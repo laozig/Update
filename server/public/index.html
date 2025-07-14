@@ -381,15 +381,14 @@
                   <i class="bi bi-circle-fill me-2" id="statusIcon" style="color: #dc3545;"></i>
                   状态: <span id="serverStatus" class="fw-bold">已停止</span>
                 </p>
-                <p class="card-text"><i class="bi bi-hdd-network me-2"></i> 域名: <span class="fw-bold" id="serverIp">update.tangyun.lat</span></p>
-                <p class="card-text"><i class="bi bi-ethernet me-2"></i> API端口: <span class="fw-bold">3000</span></p>
-                <p class="card-text"><i class="bi bi-window-desktop me-2"></i> 控制面板端口: <span class="fw-bold">8080</span></p>
+                <p class="card-text"><i class="bi bi-hdd-network me-2"></i> 域名: <span class="fw-bold" id="serverIp">localhost</span></p>
+                <!-- 已通过Nginx代理，不需要显示内部端口 -->
               </div>
               <div class="col-md-6">
                 <p class="card-text"><i class="bi bi-code-slash me-2"></i> 版本API:</p>
-                <code class="user-select-all d-block bg-light p-2 rounded">http://update.tangyun.lat:3000/api/version/:projectId</code>
+                <code class="user-select-all d-block bg-light p-2 rounded">http://localhost/api/version/:projectId</code>
                 <p class="card-text mt-3"><i class="bi bi-download me-2"></i> 下载API:</p>
-                <code class="user-select-all d-block bg-light p-2 rounded">http://update.tangyun.lat:3000/download/:projectId/latest</code>
+                <code class="user-select-all d-block bg-light p-2 rounded">http://localhost/download/:projectId/latest</code>
               </div>
             </div>
           </div>
@@ -915,6 +914,7 @@
       loadProjects();
       checkServerStatus();
       fetchLogs();
+      loadServerConfig();
       
       // 添加用户模态框打开时加载角色列表
       document.getElementById('addUserModal').addEventListener('show.bs.modal', function() {
@@ -2085,6 +2085,47 @@
             showAlert('control', 'error', '清理日志失败，请重试');
           }
         });
+    }
+    
+    // 加载服务器配置
+    async function loadServerConfig() {
+      try {
+        const response = await fetchWithAuth('/api/server-config');
+        if (!response.ok) {
+          throw new Error('获取服务器配置失败');
+        }
+        
+        const config = await response.json();
+        const serverIp = config.serverIp || location.hostname;
+        const port = config.port || 3000;
+        
+        // 更新显示的服务器信息
+        document.getElementById('serverIp').textContent = serverIp;
+        
+        // 更新API URL示例
+        document.querySelectorAll('code').forEach(codeElement => {
+          if (codeElement.textContent.includes('/api/version/')) {
+            codeElement.textContent = `http://${serverIp}/api/version/:projectId`;
+          } else if (codeElement.textContent.includes('/download/')) {
+            codeElement.textContent = `http://${serverIp}/download/:projectId/latest`;
+          }
+        });
+        
+      } catch (error) {
+        console.error('加载服务器配置失败:', error);
+        // 如果加载失败，使用页面自身的主机名
+        const fallbackHost = location.hostname;
+        document.getElementById('serverIp').textContent = fallbackHost;
+        
+        // 更新API URL示例
+        document.querySelectorAll('code').forEach(codeElement => {
+          if (codeElement.textContent.includes('/api/version/')) {
+            codeElement.textContent = `http://${fallbackHost}/api/version/:projectId`;
+          } else if (codeElement.textContent.includes('/download/')) {
+            codeElement.textContent = `http://${fallbackHost}/download/:projectId/latest`;
+          }
+        });
+      }
     }
   </script>
 </body>

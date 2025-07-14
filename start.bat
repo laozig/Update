@@ -77,7 +77,7 @@ if not exist server\config.json (
   if exist server\config.example.json (
     copy server\config.example.json server\config.json
   ) else (
-    echo {"projects":[],"users":[{"username":"admin","password":"admin","role":"admin","email":"admin@example.com","createdAt":"%date% %time%"}],"server":{"serverIp":"update.tangyun.lat","port":3000,"adminPort":8080,"jwtSecret":"your-secret-key-change-this-in-production","jwtExpiry":"24h"},"roles":[{"id":"admin","name":"Admin","description":"System administrator with all permissions","permissions":["all"],"isSystem":true},{"id":"user","name":"User","description":"Regular user, can only manage own projects","permissions":["manage_own_projects"],"isSystem":true}]} > server\config.json
+    echo {"projects":[],"users":[{"username":"admin","password":"admin","role":"admin","email":"admin@example.com","createdAt":"%date% %time%"}],"server":{"serverIp":"localhost","port":3000,"adminPort":8080,"jwtSecret":"your-secret-key-change-this-in-production","jwtExpiry":"24h"},"roles":[{"id":"admin","name":"Admin","description":"System administrator with all permissions","permissions":["all"],"isSystem":true},{"id":"user","name":"User","description":"Regular user, can only manage own projects","permissions":["manage_own_projects"],"isSystem":true}]} > server\config.json
   )
 )
 
@@ -123,9 +123,9 @@ for /f "tokens=2 delims=:" %%a in ('ipconfig ^| find "IPv4"') do (
   goto :foundIP
 )
 :foundIP
-call :colorEcho 0B "[INFO] API server running at: http://%IP%:3000"
+call :colorEcho 0B "[INFO] API server running at: http://%IP%"
 echo.
-call :colorEcho 0B "[INFO] Control panel running at: http://%IP%:8080"
+call :colorEcho 0B "[INFO] Control panel running at: http://%IP%"
 echo.
 echo.
 call :colorEcho 0B "[INFO] Log files:"

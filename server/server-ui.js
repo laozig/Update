@@ -317,7 +317,7 @@ const loadVersions = (projectId) => {
       versions.forEach(version => {
         // 修复旧数据中可能不完整的downloadUrl
         if (!version.downloadUrl.startsWith('http') || version.downloadUrl.includes('undefined')) {
-          version.downloadUrl = `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}/download/${projectId}/${version.version}`;
+          version.downloadUrl = `http://${config.server.serverIp || 'localhost'}/download/${projectId}/${version.version}`;
         }
         
         // 向后兼容：如果旧数据没有 originalFileName，尝试从当前 fileName 推断
@@ -458,6 +458,23 @@ app.get('/api/user', (req, res) => {
 });
 
 // API路由
+
+// 获取服务器配置信息
+app.get('/api/server-config', authenticateJWT, (req, res) => {
+  try {
+    // 返回安全的服务器配置（不包含敏感信息）
+    const serverConfig = {
+      serverIp: config.server.serverIp || req.hostname || 'localhost',
+      port: config.server.port || 3000,
+      adminPort: config.server.adminPort || 8080
+    };
+    
+    res.json(serverConfig);
+  } catch (error) {
+    console.error('获取服务器配置错误:', error);
+    res.status(500).json({ error: '服务器内部错误' });
+  }
+});
 
 // 获取项目列表
 app.get('/api/projects', (req, res) => {
@@ -978,7 +995,7 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
     const newVersionInfo = {
       version,
       releaseDate: new Date().toISOString(),
-      downloadUrl: `http://${config.server.serverIp || 'update.tangyun.lat'}:${config.server.port}/download/${projectId}/${version}`,
+      downloadUrl: `http://${config.server.serverIp || 'localhost'}/download/${projectId}/${version}`,
       releaseNotes: releaseNotes || `版本 ${version} 更新`,
       fileName: newFileName,                 
       originalFileName: originalNameWithoutExt 

@@ -77,7 +77,7 @@ install_dependencies() {
   info "检查配置文件..."
   if [ ! -f server/config.json ]; then
     info "创建默认配置文件..."
-    cp server/config.example.json server/config.json 2>/dev/null || echo '{"projects":[],"users":[{"username":"admin","password":"admin","role":"admin","email":"admin@example.com","createdAt":"'$(date -Iseconds)'"}],"server":{"serverIp":"update.tangyun.lat","port":3000,"adminPort":8080,"jwtSecret":"your-secret-key-change-this-in-production","jwtExpiry":"24h"},"roles":[{"id":"admin","name":"管理员","description":"系统管理员，拥有所有权限","permissions":["all"],"isSystem":true},{"id":"user","name":"普通用户","description":"普通用户，只能管理自己的项目","permissions":["manage_own_projects"],"isSystem":true}]}' > server/config.json
+    cp server/config.example.json server/config.json 2>/dev/null || echo '{"projects":[],"users":[{"username":"admin","password":"admin","role":"admin","email":"admin@example.com","createdAt":"'$(date -Iseconds)'"}],"server":{"serverIp":"localhost","port":3000,"adminPort":8080,"jwtSecret":"your-secret-key-change-this-in-production","jwtExpiry":"24h"},"roles":[{"id":"admin","name":"管理员","description":"系统管理员，拥有所有权限","permissions":["all"],"isSystem":true},{"id":"user","name":"普通用户","description":"普通用户，只能管理自己的项目","permissions":["manage_own_projects"],"isSystem":true}]}' > server/config.json
   fi
   
   success "依赖安装完成！"
@@ -110,8 +110,8 @@ start_services() {
   
   echo ""
   success "所有服务已启动！"
-  info "API服务器运行在: http://$(hostname -I | awk '{print $1}'):3000"
-  info "控制面板运行在: http://$(hostname -I | awk '{print $1}'):8080"
+  info "API服务器运行在: http://$(hostname -I | awk '{print $1}')"
+  info "控制面板运行在: http://$(hostname -I | awk '{print $1}')"
   echo ""
   info "日志文件:"
   info "- API服务器: api-server.log"
