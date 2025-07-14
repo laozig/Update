@@ -276,7 +276,7 @@
           <i class="bi bi-grid-3x3-gap-fill"></i> <span>项目管理</span>
         </a>
       </li>
-      <li class="nav-item">
+      <li class="nav-item" id="control-tab-item">
         <a class="nav-link" id="control-tab" data-bs-toggle="tab" href="#controlTab" role="tab" aria-controls="controlTab" aria-selected="false">
           <i class="bi bi-sliders"></i> <span>服务器控制</span>
         </a>
@@ -355,18 +355,20 @@
           </div>
     </div>
     
-        <h4 class="d-flex justify-content-between align-items-center">
-          服务器日志
-          <div>
-            <button class="btn btn-sm btn-warning" onclick="cleanLogs()">
-              <i class="bi bi-trash"></i> 清理日志
-            </button>
-            <button class="btn btn-sm btn-primary" onclick="fetchLogs()">
-              <i class="bi bi-arrow-clockwise"></i> 刷新
-            </button>
-          </div>
-        </h4>
-        <div id="logs" class="log-container mb-4"></div>
+        <div id="logSection" style="display:none;">
+          <h4 class="d-flex justify-content-between align-items-center">
+            服务器日志
+            <div>
+              <button class="btn btn-sm btn-warning" onclick="cleanLogs()">
+                <i class="bi bi-trash"></i> 清理日志
+              </button>
+              <button class="btn btn-sm btn-primary" onclick="fetchLogs()">
+                <i class="bi bi-arrow-clockwise"></i> 刷新
+              </button>
+            </div>
+          </h4>
+          <div id="logs" class="log-container mb-4"></div>
+        </div>
 
         <div class="card">
           <div class="card-header bg-primary text-white">
@@ -964,13 +966,22 @@
         // 保存当前用户角色
         currentUserRole = user.role;
         
-        // 如果不是管理员，隐藏用户管理和角色管理标签
+        // 如果不是管理员，隐藏用户管理、角色管理标签、服务器控制和服务器日志
         if (user.role !== 'admin') {
           document.getElementById('users-tab-item').style.display = 'none';
           document.getElementById('roles-tab-item').style.display = 'none';
+          document.getElementById('control-tab-item').style.display = 'none';
+          document.getElementById('logSection').style.display = 'none';
+          
+          // 如果当前激活的是服务器控制标签，则切换到项目管理标签
+          if (document.querySelector('#control-tab').classList.contains('active')) {
+            document.querySelector('#projects-tab').click();
+          }
         } else {
           document.getElementById('users-tab-item').style.display = 'block';
           document.getElementById('roles-tab-item').style.display = 'block';
+          document.getElementById('control-tab-item').style.display = 'block';
+          document.getElementById('logSection').style.display = 'block';
         }
       } catch (error) {
         console.error('加载用户信息失败:', error);
@@ -1219,13 +1230,24 @@
     
     function fetchLogs() {
       fetchWithAuth('/logs')
-        .then(response => response.json())
+        .then(response => {
+          if (response.status === 403) {
+            throw new Error('没有权限查看服务器日志，需要管理员权限');
+          }
+          return response.json();
+        })
         .then(data => {
           const logsContainer = document.getElementById('logs');
           logsContainer.innerHTML = data.logs.map(log => `<p class="mb-0">${log}</p>`).join('');
           logsContainer.scrollTop = logsContainer.scrollHeight;
         })
-        .catch(err => console.error('Error fetching logs:', err));
+        .catch(err => {
+          console.error('Error fetching logs:', err);
+          if (err.message.includes('没有权限')) {
+            // 如果是权限错误，不显示错误提示，因为日志区域已经隐藏了
+            document.getElementById('logSection').style.display = 'none';
+          }
+        });
     }
     
     function updateStatus(isRunning) {
@@ -1246,22 +1268,54 @@
     
     document.getElementById('startBtn').addEventListener('click', () => {
       fetchWithAuth('/start', { method: 'POST' })
-        .then(response => response.json())
+        .then(response => {
+          if (response.status === 403) {
+            throw new Error('没有权限启动服务器，需要管理员权限');
+          }
+          return response.json();
+        })
         .then(data => {
           updateStatus(data.running);
           setTimeout(fetchLogs, 500);
         })
-        .catch(err => showAlert('control', 'error', '启动服务器失败'));
+        .catch(err => {
+          console.error('启动服务器错误:', err);
+          if (err.message.includes('没有权限')) {
+            showAlert('control', 'error', '没有权限启动服务器，需要管理员权限');
+            // 隐藏控制选项卡
+            document.getElementById('control-tab-item').style.display = 'none';
+            // 切换到项目管理选项卡
+            document.querySelector('#projects-tab').click();
+          } else {
+            showAlert('control', 'error', '启动服务器失败');
+          }
+        });
     });
     
     document.getElementById('stopBtn').addEventListener('click', () => {
       fetchWithAuth('/stop', { method: 'POST' })
-        .then(response => response.json())
+        .then(response => {
+          if (response.status === 403) {
+            throw new Error('没有权限停止服务器，需要管理员权限');
+          }
+          return response.json();
+        })
         .then(data => {
           updateStatus(data.running);
           setTimeout(fetchLogs, 500);
         })
-        .catch(err => showAlert('control', 'error', '停止服务器失败'));
+        .catch(err => {
+          console.error('停止服务器错误:', err);
+          if (err.message.includes('没有权限')) {
+            showAlert('control', 'error', '没有权限停止服务器，需要管理员权限');
+            // 隐藏控制选项卡
+            document.getElementById('control-tab-item').style.display = 'none';
+            // 切换到项目管理选项卡
+            document.querySelector('#projects-tab').click();
+          } else {
+            showAlert('control', 'error', '停止服务器失败');
+          }
+        });
     });
     
     function uploadVersion() {
@@ -2007,16 +2061,30 @@
       }
       
       fetchWithAuth('/api/logs/clean', { method: 'POST' })
-        .then(response => response.json())
+        .then(response => {
+          if (response.status === 403) {
+            throw new Error('没有权限清理服务器日志，需要管理员权限');
+          }
+          return response.json();
+        })
         .then(data => {
           if (data.error) {
-            showAlert('logs', 'error', data.error);
+            showAlert('control', 'error', data.error);
           } else {
-            showAlert('logs', 'success', '日志已成功清理');
+            showAlert('control', 'success', '日志已成功清理');
             fetchLogs(); // 刷新日志显示
           }
         })
-        .catch(err => showAlert('logs', 'error', '清理日志失败，请重试'));
+        .catch(err => {
+          console.error('清理日志失败:', err);
+          if (err.message.includes('没有权限')) {
+            showAlert('control', 'error', '没有权限清理服务器日志，需要管理员权限');
+            // 如果是权限错误，隐藏日志区域
+            document.getElementById('logSection').style.display = 'none';
+          } else {
+            showAlert('control', 'error', '清理日志失败，请重试');
+          }
+        });
     }
   </script>
 </body>

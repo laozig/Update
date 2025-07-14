@@ -768,7 +768,12 @@ app.get('/status', authenticateJWT, (req, res) => {
 });
 
 app.get('/logs', authenticateJWT, (req, res) => {
-  res.json({ logs: serverLogs });
+  // 只允许管理员查看日志
+  if (req.user && req.user.role === 'admin') {
+    res.json({ logs: serverLogs });
+  } else {
+    res.status(403).json({ error: '没有权限查看服务器日志，需要管理员权限' });
+  }
 });
 
 // 清理日志文件
