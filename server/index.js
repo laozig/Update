@@ -21,6 +21,8 @@ const getBaseUrl = (req) => {
 
 // JWT密钥，与控制面板使用相同的密钥
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 
 // 加载系统配置
 const configPath = path.join(__dirname, 'config.json');
@@ -253,10 +255,22 @@ const storage = multer.diskStorage({
   }
 });
 
+const parseMaxUpload = () => {
+  const val = process.env.MAX_UPLOAD_SIZE || '';
+  if (!val) return 100 * 1024 * 1024; // 默认100MB
+  const lower = String(val).toLowerCase().trim();
+  const num = parseFloat(lower);
+  if (isNaN(num)) return 100 * 1024 * 1024;
+  if (lower.endsWith('gb') || lower.endsWith('g')) return Math.floor(num * 1024 * 1024 * 1024);
+  if (lower.endsWith('mb') || lower.endsWith('m')) return Math.floor(num * 1024 * 1024);
+  if (lower.endsWith('kb') || lower.endsWith('k')) return Math.floor(num * 1024);
+  return Math.floor(num); // 认为是字节数
+};
+
 const upload = multer({
   storage,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB
+    fileSize: parseMaxUpload(),
   }
 });
 
@@ -321,6 +335,49 @@ const saveVersions = (projectId, versions) => {
 // 初始化加载配置
 loadConfig();
   console.log(`服务器配置已加载，域名: ${config.server.serverIp || 'localhost'}`);
+
+// 首次启动安全初始化：若无用户且设置了 ADMIN_PASSWORD，则创建管理员（密码哈希）
+try {
+  const hasAnyUser = Array.isArray(config.users) && config.users.length > 0;
+  if (!hasAnyUser) {
+    const nowIso = new Date().toISOString();
+    if (ADMIN_PASSWORD) {
+      const passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
+      config.users = [
+        { username: ADMIN_USERNAME, password: passwordHash, role: 'admin', email: `${ADMIN_USERNAME}@example.com`, createdAt: nowIso }
+      ];
+      saveConfig();
+      console.log(`[安全] 已根据环境变量创建管理员用户: ${ADMIN_USERNAME}`);
+    } else {
+      // 无预设口令 -> 生成随机账号密码（仅首次启动）
+      const randomString = (len) => {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+        let out = '';
+        for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
+        return out;
+      };
+      const generatedUsername = `admin-${randomString(6)}`;
+      const generatedPassword = randomString(16);
+      const passwordHash = bcrypt.hashSync(generatedPassword, 10);
+      config.users = [
+        { username: generatedUsername, password: passwordHash, role: 'admin', email: `${generatedUsername}@example.com`, createdAt: nowIso }
+      ];
+      saveConfig();
+      // 将明文首次登录凭据写入文件并打印（仅一次）
+      try {
+        const firstRunFile = path.join(__dirname, 'first-run-admin.txt');
+        const content = `首次部署已生成管理员账号，请尽快登录并修改密码\n用户名: ${generatedUsername}\n密码: ${generatedPassword}\n时间: ${nowIso}\n`;
+        fs.writeFileSync(firstRunFile, content, { flag: 'w' });
+        console.warn('[安全] 首次部署：已生成随机管理员账号，凭据已写入 server/first-run-admin.txt');
+        console.warn(`[安全] 一次性提示 - 用户名: ${generatedUsername} 密码: ${generatedPassword}`);
+      } catch (werr) {
+        console.error('写入首次登录凭据文件失败:', werr);
+      }
+    }
+  }
+} catch (e) {
+  console.error('初始化管理员用户失败:', e);
+}
 
 // 路由
 

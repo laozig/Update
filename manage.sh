@@ -187,6 +187,300 @@ docker_logs(){ ensure_compose; $(docker_cmd) logs -f --tail=200 "$@"; }
 pause_services(){ stop_local; warn "已暂停本地服务"; }
 resume_services(){ start_local; ok "已恢复本地服务"; }
 
+# ---------------- Nginx 反向代理 ----------------
+detect_os_pkg(){
+  if command -v apt >/dev/null 2>&1; then echo apt; return; fi
+  if command -v apt-get >/dev/null 2>&1; then echo apt; return; fi
+  if command -v yum >/dev/null 2>&1; then echo yum; return; fi
+  if command -v dnf >/dev/null 2>&1; then echo dnf; return; fi
+  if command -v apk >/dev/null 2>&1; then echo apk; return; fi
+  echo unknown
+}
+
+nginx_install(){
+  if command -v nginx >/dev/null 2>&1; then ok "已安装 Nginx"; return; fi
+  local pm=$(detect_os_pkg)
+  warn "未检测到 Nginx，开始安装（需要 root 权限）..."
+  case "$pm" in
+    apt)
+      sudo apt update -y && sudo apt install -y nginx ;;
+    yum)
+      sudo yum install -y epel-release || true
+      sudo yum install -y nginx ;;
+    dnf)
+      sudo dnf install -y nginx ;;
+    apk)
+      sudo apk add --no-cache nginx ;;
+    *)
+      err "无法识别包管理器，请手动安装 Nginx"; exit 1 ;;
+  esac
+  ok "Nginx 安装完成"
+}
+
+nginx_paths(){
+  # 输出三个值：sites_available sites_enabled conf_d
+  if [ -d "/etc/nginx/sites-available" ]; then
+    echo "/etc/nginx/sites-available" "/etc/nginx/sites-enabled" "/etc/nginx/conf.d"
+  else
+    echo "" "" "/etc/nginx/conf.d"
+  fi
+}
+
+nginx_conf_content(){
+  local apiPort uiPort maxBody domain enableHttps certPath keyPath redirectWww
+  apiPort=$(get_port_from_config port); uiPort=$(get_port_from_config adminPort)
+  [ -n "$apiPort" ] || apiPort=$DEFAULT_API_PORT
+  [ -n "$uiPort" ] || uiPort=$DEFAULT_UI_PORT
+  maxBody=${NGX_MAX_BODY:-${MAX_UPLOAD_SIZE:-1g}}
+  domain=${NGX_SERVER_NAME:-${SERVER_NAME:-_}}
+  enableHttps=${NGX_ENABLE_HTTPS:-no}
+  certPath=${NGX_SSL_CERT:-}
+  keyPath=${NGX_SSL_KEY:-}
+  redirectWww=${NGX_REDIRECT_WWW:-no}
+
+  if [ "$enableHttps" = "yes" ] && [ -n "$certPath" ] && [ -n "$keyPath" ]; then
+    cat <<NGX
+server {
+  listen 80;
+  server_name ${domain};
+  client_max_body_size ${maxBody};
+  location /.well-known/acme-challenge/ { root /var/www/html; }
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen 443 ssl http2;
+  server_name ${domain};
+  client_max_body_size ${maxBody};
+  ssl_certificate ${certPath};
+  ssl_certificate_key ${keyPath};
+  ssl_protocols TLSv1.2 TLSv1.3;
+  ssl_ciphers HIGH:!aNULL:!MD5;
+
+  location /api/ {
+    proxy_pass http://127.0.0.1:${apiPort}/api/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location /download/ {
+    proxy_pass http://127.0.0.1:${apiPort}/download/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location / {
+    proxy_pass http://127.0.0.1:${uiPort}/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}
+NGX
+  else
+    cat <<NGX
+server {
+  listen 80;
+  server_name ${domain};
+  client_max_body_size ${maxBody};
+
+  location /api/ {
+    proxy_pass http://127.0.0.1:${apiPort}/api/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location /download/ {
+    proxy_pass http://127.0.0.1:${apiPort}/download/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location / {
+    proxy_pass http://127.0.0.1:${uiPort}/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}
+NGX
+  fi
+}
+
+nginx_write_conf(){
+  read -r sites_av sites_en conf_d < <(nginx_paths)
+  local name="update-server"
+  if [ -n "$sites_av" ]; then
+    # Debian/Ubuntu 风格
+    local conf="$sites_av/${name}"
+    info "写入 Nginx 配置: $conf"
+    sudo bash -c 'cat > '"$conf" <<"CONF"
+'"$(nginx_conf_content)"'
+CONF'
+    echo "$conf"
+  else
+    # RHEL/Alpine 风格
+    local conf="$conf_d/${name}.conf"
+    info "写入 Nginx 配置: $conf"
+    sudo bash -c 'cat > '"$conf" <<"CONF"
+'"$(nginx_conf_content)"'
+CONF'
+    echo "$conf"
+  fi
+}
+
+nginx_enable(){
+  nginx_install
+  read -r sites_av sites_en conf_d < <(nginx_paths)
+  local name="update-server"
+  local conf_path
+  if [ -n "$sites_av" ]; then
+    conf_path="$sites_av/${name}"
+    if [ ! -f "$conf_path" ]; then nginx_write_conf >/dev/null; fi
+    sudo ln -sf "$conf_path" "$sites_en/${name}"
+  else
+    conf_path="$conf_d/${name}.conf"
+    if [ ! -f "$conf_path" ]; then nginx_write_conf >/dev/null; fi
+  fi
+  sudo nginx -t
+  sudo systemctl enable nginx >/dev/null 2>&1 || true
+  sudo systemctl restart nginx || sudo service nginx restart || sudo nginx -s reload
+  ok "Nginx 配置已启用并重载"
+}
+
+nginx_disable(){
+  read -r sites_av sites_en conf_d < <(nginx_paths)
+  local name="update-server"
+  if [ -n "$sites_en" ] && [ -L "$sites_en/${name}" ]; then
+    sudo rm -f "$sites_en/${name}"
+  fi
+  if [ -f "$conf_d/${name}.conf" ]; then
+    sudo rm -f "$conf_d/${name}.conf"
+  fi
+  sudo nginx -t || true
+  sudo nginx -s reload || sudo systemctl reload nginx || true
+  ok "Nginx 配置已禁用"
+}
+
+nginx_reload(){
+  sudo nginx -t
+  sudo nginx -s reload || sudo systemctl reload nginx || true
+  ok "Nginx 已重载"
+}
+
+nginx_setup(){
+  # 引导交互
+  echo "—— Nginx 反向代理配置向导 ——"
+  read -rp "请输入域名(可留空为 _ ): " _dom
+  read -rp "最大上传大小(默认 1g，可填 500m/2g 等): " _size
+  read -rp "是否启用 HTTPS 并使用已有证书? (y/N): " _https
+  if [[ "${_https,,}" == "y" || "${_https,,}" == "yes" ]]; then
+    read -rp "证书文件路径 (ssl_certificate): " _cert
+    read -rp "私钥文件路径 (ssl_certificate_key): " _key
+    export NGX_ENABLE_HTTPS=yes
+    export NGX_SSL_CERT="${_cert}"
+    export NGX_SSL_KEY="${_key}"
+  else
+    export NGX_ENABLE_HTTPS=no
+  fi
+  [ -n "${_dom}" ] && export NGX_SERVER_NAME="${_dom}" || true
+  [ -n "${_size}" ] && export NGX_MAX_BODY="${_size}" || true
+
+  nginx_install
+  nginx_write_conf >/dev/null
+  nginx_enable
+}
+
+# ---------------- 证书管理（Certbot） ----------------
+certbot_install(){
+  if command -v certbot >/dev/null 2>&1; then return; fi
+  local pm=$(detect_os_pkg)
+  info "安装 certbot..."
+  case "$pm" in
+    apt)
+      sudo apt update -y && sudo apt install -y certbot ;; # 使用 webroot 插件无需额外包
+    yum)
+      sudo yum install -y certbot ;; 
+    dnf)
+      sudo dnf install -y certbot ;;
+    apk)
+      sudo apk add --no-cache certbot ;;
+    *) err "无法自动安装 certbot，请手动安装"; exit 1 ;;
+  esac
+}
+
+cert_issue(){
+  nginx_install
+  certbot_install
+  # 确保有可用的 webroot
+  sudo mkdir -p /var/www/html
+  sudo chown root:root /var/www/html
+
+  echo "—— 证书申请向导（Let’s Encrypt）——"
+  read -rp "域名（例如 updates.example.com）: " _dom
+  read -rp "管理员邮箱（用于到期提醒）: " _email
+  if [ -z "$_dom" ] || [ -z "$_email" ]; then err "域名与邮箱均不能为空"; exit 1; fi
+
+  # 写入/启用临时 80 端口配置，暴露 .well-known
+  export NGX_SERVER_NAME="${_dom}"
+  export NGX_MAX_BODY="${NGX_MAX_BODY:-${MAX_UPLOAD_SIZE:-1g}}"
+  export NGX_ENABLE_HTTPS=no
+  nginx_write_conf >/dev/null
+  nginx_enable
+
+  # 请求证书（webroot 模式，不中断 Nginx）
+  sudo certbot certonly --non-interactive --agree-tos --email "${_email}" \
+    --webroot -w /var/www/html -d "${_dom}" || { err "证书申请失败"; exit 1; }
+
+  # 获取证书路径
+  local cert="/etc/letsencrypt/live/${_dom}/fullchain.pem"
+  local key="/etc/letsencrypt/live/${_dom}/privkey.pem"
+  if [ ! -f "$cert" ] || [ ! -f "$key" ]; then err "证书文件不存在：$cert 或 $key"; exit 1; fi
+
+  # 重新生成启用 HTTPS 的 Nginx 配置
+  export NGX_ENABLE_HTTPS=yes
+  export NGX_SSL_CERT="$cert"
+  export NGX_SSL_KEY="$key"
+  nginx_write_conf >/dev/null
+  nginx_enable
+  ok "证书已申请并配置成功：https://${_dom}"
+  # 设置自动续签 & 进行一次干跑自检
+  cert_setup_auto_renew
+  info "进行续签干跑检测（不实际更换证书）..."
+  sudo certbot renew --dry-run --quiet || true
+  ok "证书申请与自动续签配置完成"
+}
+
+cert_renew(){
+  certbot_install
+  sudo certbot renew --quiet || true
+  nginx_reload
+  ok "已尝试续期并重载 Nginx"
+}
+
+# 为 root 配置自动续签（每天 3:00），若已存在则跳过
+cert_setup_auto_renew(){
+  local entry='0 3 * * * certbot renew --quiet && nginx -s reload'
+  local has_cron
+  has_cron=$(sudo crontab -l 2>/dev/null | grep -F "${entry}" || true)
+  if [ -z "$has_cron" ]; then
+    info "配置证书自动续签（cron，每天 3:00）..."
+    (sudo crontab -l 2>/dev/null; echo "$entry") | sudo crontab -
+  else
+    info "已存在证书自动续签任务，跳过"
+  fi
+}
+
 show_help(){
   cat <<EOF
 用法: $0 <命令> [选项]
@@ -206,6 +500,16 @@ Docker:
   docker:down       停止并移除
   docker:restart    重启
   docker:logs [svc] 查看日志（可选指定服务名）
+
+Nginx 反向代理:
+  nginx:setup       安装 Nginx 并生成/启用反代配置（API/UI）
+  nginx:enable      启用站点配置并重载 Nginx
+  nginx:disable     禁用站点配置并重载 Nginx
+  nginx:reload      重载 Nginx 配置
+
+证书管理（Let’s Encrypt）:
+  cert:issue        交互式申请并配置 HTTPS 证书（webroot 模式）
+  cert:renew        立即尝试续期证书并重载（系统建议用 cron 定时）
 
 其他:
   help              显示帮助
@@ -228,6 +532,9 @@ menu(){
   echo "10) Docker 停止"
   echo "11) Docker 重启"
   echo "12) Docker 日志"
+  echo "13) Nginx 安装与配置"
+  echo "14) 申请 HTTPS 证书 (Let’s Encrypt)"
+  echo "15) 续期证书"
   echo "0) 退出"
   read -rp "请选择: " choice
   case "$choice" in
@@ -243,6 +550,9 @@ menu(){
     10) docker_down;;
     11) docker_restart;;
     12) docker_logs;;
+    13) nginx_setup;;
+    14) cert_issue;;
+    15) cert_renew;;
     0) exit 0;;
     *) warn "无效选择";;
   esac
@@ -262,6 +572,12 @@ case "$cmd" in
   docker:down) docker_down ;;
   docker:restart) docker_restart ;;
   docker:logs) shift || true; docker_logs "$@" ;;
+  nginx:setup) nginx_setup ;;
+  nginx:enable) nginx_enable ;;
+  nginx:disable) nginx_disable ;;
+  nginx:reload) nginx_reload ;;
+  cert:issue) cert_issue ;;
+  cert:renew) cert_renew ;;
   help|-h|--help) show_help ;;
   "") show_help; menu ;;
   *) err "未知命令: $cmd"; echo; show_help; exit 1 ;;
