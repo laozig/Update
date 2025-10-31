@@ -206,7 +206,7 @@ services:
     volumes:
       - ./:/app
     # 在同一容器内同时运行 API 与 UI；API 后台运行，UI 前台保持容器生命周期
-    command: ["sh","-lc","(npm ci --silent || npm install --silent) \\\n+      && (cd server && [ -f package.json ] && (npm ci --silent || npm install --silent) || true) \\\n+      && node ${API_ENTRY} & sleep 1 && node ${UI_ENTRY}"]
+    command: ["sh","-lc","set -e; if [ -f package-lock.json ] || [ -f package.json ]; then npm ci --silent || npm install --silent; fi; if [ -f server/package.json ]; then (cd server && (npm ci --silent || npm install --silent)); fi; node ${API_ENTRY} & sleep 1; node ${UI_ENTRY}"]
     ports:
       - "${hostApiPort}:${apiPort}"
       - "${hostUiPort}:${uiPort}"
