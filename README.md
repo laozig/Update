@@ -16,6 +16,11 @@
 - 大文件优化：可配置上传上限（支持 `1g`/`500m` 等）
 
 ## 快速开始
+一键安装（Linux/macOS/WSL）：
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/laozig/Update/main/scripts/bootstrap.sh)
+```
+可选：`INSTALL_DIR` `SERVER_NAME` `MAX_UPLOAD_SIZE`
 ### Windows（推荐）
 ```bat
 git clone https://github.com/laozig/Update.git
@@ -34,6 +39,7 @@ cd Update
 ./manage.sh status
 ```
 - 常用：`./manage.sh start|stop|restart|update|docker:up|nginx:setup|cert:issue`
+ - 卸载：`./manage.sh uninstall`（可设置 `UNINSTALL_PURGE=yes` 跳过确认并清理数据）
 
 ## 环境变量（推荐）
 - `BASE_URL`：对外地址（如 `https://updates.example.com`）；未设时按请求自动推断

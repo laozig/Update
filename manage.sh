@@ -197,6 +197,40 @@ detect_os_pkg(){
   echo unknown
 }
 
+# ---------------- 卸载逻辑 ----------------
+uninstall_cmd(){
+  warn "即将停止服务、关闭 Docker、禁用 Nginx。可选清理数据。"
+  # 停止本地服务
+  stop_local || true
+  # 关闭 Docker（如存在）
+  if [ -f "$(compose_file)" ]; then
+    docker_down || true
+  fi
+  # 禁用 Nginx 配置
+  nginx_disable || true
+
+  # 询问是否清理数据
+  if [ "${UNINSTALL_PURGE:-no}" = "yes" ]; then
+    _ans="YES"
+  else
+    read -rp "是否删除生成的数据与依赖（server/projects, server/config.json, node_modules, 日志等）? 输入 YES 确认: " _ans || true
+  fi
+  if [ "${_ans}" = "YES" ]; then
+    info "删除生成数据与依赖..."
+    rm -rf server/projects || true
+    rm -f server/config.json || true
+    rm -rf node_modules || true
+    rm -f api-server.log ui-server.log server.log || true
+    rm -f api-server.pid ui-server.pid || true
+    rm -f docker-compose.yml || true
+    ok "数据清理完成"
+  else
+    warn "已跳过数据清理"
+  fi
+
+  ok "卸载步骤完成（代码目录未删除）。如需彻底删除，可手动 rm -rf 项目目录。"
+}
+
 nginx_install(){
   if command -v nginx >/dev/null 2>&1; then ok "已安装 Nginx"; return; fi
   local pm=$(detect_os_pkg)
@@ -511,6 +545,9 @@ Nginx 反向代理:
   cert:issue        交互式申请并配置 HTTPS 证书（webroot 模式）
   cert:renew        立即尝试续期证书并重载（系统建议用 cron 定时）
 
+卸载:
+  uninstall         停止服务、关闭 Docker、禁用 Nginx；可选清理数据（设置 UNINSTALL_PURGE=yes 跳过确认）
+
 其他:
   help              显示帮助
 
@@ -535,6 +572,7 @@ menu(){
   echo "13) Nginx 安装与配置"
   echo "14) 申请 HTTPS 证书 (Let’s Encrypt)"
   echo "15) 续期证书"
+  echo "16) 卸载 (停止/禁用，可选清理数据)"
   echo "0) 退出"
   read -rp "请选择: " choice
   case "$choice" in
@@ -553,6 +591,7 @@ menu(){
     13) nginx_setup;;
     14) cert_issue;;
     15) cert_renew;;
+    16) uninstall_cmd;;
     0) exit 0;;
     *) warn "无效选择";;
   esac
@@ -578,6 +617,7 @@ case "$cmd" in
   nginx:reload) nginx_reload ;;
   cert:issue) cert_issue ;;
   cert:renew) cert_renew ;;
+  uninstall) uninstall_cmd ;;
   help|-h|--help) show_help ;;
   "") show_help; menu ;;
   *) err "未知命令: $cmd"; echo; show_help; exit 1 ;;
