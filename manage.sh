@@ -200,21 +200,15 @@ gen_compose_if_missing(){
   info "Docker 端口映射: API ${hostApiPort}->${apiPort}, UI ${hostUiPort}->${uiPort}"
   cat > "$file" <<YML
 services:
-  update-api:
+  update:
     image: node:20-alpine
     working_dir: /app
     volumes:
       - ./:/app
-    command: ["sh","-lc","npm install --silent && node ${API_ENTRY}"]
+    # 在同一容器内同时运行 API 与 UI；API 后台运行，UI 前台保持容器生命周期
+    command: ["sh","-lc","npm install --silent && node ${API_ENTRY} & node ${UI_ENTRY}"]
     ports:
       - "${hostApiPort}:${apiPort}"
-  update-ui:
-    image: node:20-alpine
-    working_dir: /app
-    volumes:
-      - ./:/app
-    command: ["sh","-lc","npm install --silent && node ${UI_ENTRY}"]
-    ports:
       - "${hostUiPort}:${uiPort}"
 YML
   ok "已生成 $file"
@@ -230,8 +224,9 @@ docker_print_access(){
   ensure_compose
   local uiPort apiPort hostIp
   # 读取当前映射端口
-  uiPort=$(docker ps --format '{{.Names}} {{.Ports}}' | awk '/update-ui/{print $0}' | sed -n 's/.*:\([0-9]\+\)->8080.*/\1/p' | head -n1)
-  apiPort=$(docker ps --format '{{.Names}} {{.Ports}}' | awk '/update-api/{print $0}' | sed -n 's/.*:\([0-9]\+\)->3000.*/\1/p' | head -n1)
+  # 兼容单容器(update)或双容器(update-ui/update-api)两种命名
+  uiPort=$(docker ps --format '{{.Names}} {{.Ports}}' | awk '/update(-update-ui)?/{print $0}' | sed -n 's/.*:\([0-9]\+\)->8080.*/\1/p' | head -n1)
+  apiPort=$(docker ps --format '{{.Names}} {{.Ports}}' | awk '/update(-update-api)?/{print $0}' | sed -n 's/.*:\([0-9]\+\)->3000.*/\1/p' | head -n1)
   # 计算宿主机IP（优先 hostname -I 第一个）
   if command -v hostname >/dev/null 2>&1; then
     hostIp=$(hostname -I 2>/dev/null | awk '{print $1}')
@@ -402,7 +397,7 @@ server {
   location /.well-known/acme-challenge/ {
     root /var/www/html;
   }
-
+neglect
   location /api/ {
     proxy_pass http://127.0.0.1:${apiPort}/api/;
     proxy_set_header Host \$host;
