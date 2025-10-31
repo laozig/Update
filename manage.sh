@@ -320,9 +320,27 @@ nginx_paths(){
 
 nginx_conf_content(){
   local apiPort uiPort maxBody domain enableHttps certPath keyPath redirectWww
-  apiPort=$(get_port_from_config port); uiPort=$(get_port_from_config adminPort)
-  [ -n "$apiPort" ] || apiPort=$DEFAULT_API_PORT
-  [ -n "$uiPort" ] || uiPort=$DEFAULT_UI_PORT
+  # 解析上游端口：若检测到 Docker 正在运行，优先使用宿主映射端口；否则使用本地/配置端口
+  detect_docker_upstreams(){
+    local dApi dUi
+    if command -v docker >/dev/null 2>&1; then
+      # 提取 host 映射到容器 3000/8080 的端口
+      dApi=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | awk '/update-api/{print $0}' | sed -n 's/.*:\([0-9]\+\)->3000.*/\1/p' | head -n1)
+      dUi=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | awk '/update-ui/{print $0}' | sed -n 's/.*:\([0-9]\+\)->8080.*/\1/p' | head -n1)
+    fi;
+    echo "${dApi:-}" "${dUi:-}"
+  }
+  read -r dApi dUi < <(detect_docker_upstreams)
+  if [ -n "$dApi" ] && [ -n "$dUi" ]; then
+    apiPort="$dApi"; uiPort="$dUi"
+  else
+    # 回退到本地环境变量或配置
+    apiPort=${PORT:-}; uiPort=${ADMIN_PORT:-}
+    [ -n "$apiPort" ] || apiPort=$(get_port_from_config port)
+    [ -n "$uiPort" ] || uiPort=$(get_port_from_config adminPort)
+    [ -n "$apiPort" ] || apiPort=$DEFAULT_API_PORT
+    [ -n "$uiPort" ] || uiPort=$DEFAULT_UI_PORT
+  fi
   maxBody=${NGX_MAX_BODY:-${MAX_UPLOAD_SIZE:-1g}}
   domain=${NGX_SERVER_NAME:-${SERVER_NAME:-_}}
   enableHttps=${NGX_ENABLE_HTTPS:-no}
