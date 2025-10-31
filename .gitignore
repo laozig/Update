@@ -166,4 +166,33 @@ server/version.json
 # 注释：以下是关于项目文件的说明
 # 我们使用.gitkeep来跟踪目录本身
 # 特定项目数据应该由运行中的服务器管理，默认不提交
-# 例外：如果您有想要提交的模板项目或默认数据，请取消注释特定行或调整模式 
+# 例外：如果您有想要提交的模板项目或默认数据，请取消注释特定行或调整模式 # Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-lock.yaml
+package-lock.json
+
+# Logs
+logs/
+*.log
+
+# Env
+.env
+.env.*
+
+# Build outputs/Temp
+dist/
+build/
+tmp/
+temp/
+
+# Server uploads/artifacts
+server/projects/
+server/public/*.ico
+
+# OS/Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

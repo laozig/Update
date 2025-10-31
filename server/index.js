@@ -8,6 +8,16 @@ const bcrypt = require('bcryptjs');
 
 const app = express();
 const port = process.env.PORT || 3000;
+// 在反向代理（如 Nginx）后时，正确识别协议和客户端 IP
+app.set('trust proxy', 1);
+
+// 统一构造对外可访问的基地址：优先 BASE_URL，其次按请求推断
+const getBaseUrl = (req) => {
+  if (process.env.BASE_URL) return process.env.BASE_URL.replace(/\/$/, '');
+  const protocol = req.protocol;
+  const host = req.get('host');
+  return `${protocol}://${host}`;
+};
 
 // JWT密钥，与控制面板使用相同的密钥
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
@@ -264,8 +274,9 @@ const loadVersions = (projectId) => {
       
       versions.forEach(version => {
         // 修复旧数据中可能不完整的downloadUrl
-        if (!version.downloadUrl.startsWith('http') || version.downloadUrl.includes('undefined')) {
-          version.downloadUrl = `http://${config.server.serverIp || 'localhost'}/download/${projectId}/${version.version}`;
+        if (!version.downloadUrl || version.downloadUrl.includes('undefined')) {
+          // 使用相对路径，避免依赖 serverIp
+          version.downloadUrl = `/download/${projectId}/${version.version}`;
         }
         
         // 向后兼容：如果旧数据没有 originalFileName，尝试从当前 fileName 推断
@@ -346,8 +357,8 @@ app.get('/api/version/:projectId', (req, res) => {
   }
   
   const latestVersion = {...versions[0]};
-  // 使用请求Host动态生成下载地址，避免固定IP
-  latestVersion.downloadUrl = `http://${req.headers.host}/download/${projectId}/${latestVersion.version}`;
+  // 使用 BASE_URL 或请求推断出的协议与主机名
+  latestVersion.downloadUrl = `${getBaseUrl(req)}/download/${projectId}/${latestVersion.version}`;
   
   res.json(latestVersion);
 });
@@ -400,7 +411,7 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
     const newVersionInfo = {
       version,
       releaseDate: new Date().toISOString(),
-      downloadUrl: `http://${req.headers.host}/download/${projectId}/${version}`,
+      downloadUrl: `${getBaseUrl(req)}/download/${projectId}/${version}`,
       releaseNotes: releaseNotes || `版本 ${version} 更新`,
       fileName: newFileName,                 
       originalFileName: originalNameWithoutExt 
@@ -598,5 +609,5 @@ app.use((err, req, res, next) => {
 
 // 启动服务器
 app.listen(port, () => {
-  console.log(`更新服务器运行在 http://${config.server.serverIp || 'localhost'} (内部端口: ${port})`);
+  console.log(`更新服务器运行在 http://localhost:${port}`);
 }); 

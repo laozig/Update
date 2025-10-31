@@ -23,6 +23,16 @@ process.on('unhandledRejection', (reason, promise) => {
 // 控制面板应用
 const app = express();
 const uiPort = 8080;
+// 在反向代理（如 Nginx）后时，正确识别协议和客户端 IP
+app.set('trust proxy', 1);
+
+// 统一构造对外可访问的基地址：优先 BASE_URL，其次按请求推断
+const getBaseUrl = (req) => {
+  if (process.env.BASE_URL) return process.env.BASE_URL.replace(/\/$/, '');
+  const protocol = req.protocol;
+  const host = req.get('host');
+  return `${protocol}://${host}`;
+};
 let serverProcess = null;
 let serverRunning = false;
 let serverLogs = [];
@@ -316,8 +326,9 @@ const loadVersions = (projectId) => {
       
       versions.forEach(version => {
         // 修复旧数据中可能不完整的downloadUrl
-        if (!version.downloadUrl.startsWith('http') || version.downloadUrl.includes('undefined')) {
-          version.downloadUrl = `http://${config.server.serverIp || 'localhost'}/download/${projectId}/${version.version}`;
+        if (!version.downloadUrl || version.downloadUrl.includes('undefined')) {
+          // 使用相对路径，避免依赖 serverIp
+          version.downloadUrl = `/download/${projectId}/${version.version}`;
         }
         
         // 向后兼容：如果旧数据没有 originalFileName，尝试从当前 fileName 推断
@@ -464,7 +475,7 @@ app.get('/api/server-config', authenticateJWT, (req, res) => {
   try {
     // 返回安全的服务器配置（不包含敏感信息）
     const serverConfig = {
-      serverIp: config.server.serverIp || req.hostname || 'localhost',
+      serverIp: req.hostname,
       port: config.server.port || 3000,
       adminPort: config.server.adminPort || 8080
     };
@@ -995,7 +1006,7 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
     const newVersionInfo = {
       version,
       releaseDate: new Date().toISOString(),
-      downloadUrl: `http://${req.headers.host}/download/${projectId}/${version}`,
+      downloadUrl: `${getBaseUrl(req)}/download/${projectId}/${version}`,
       releaseNotes: releaseNotes || `版本 ${version} 更新`,
       fileName: newFileName,                 
       originalFileName: originalNameWithoutExt 

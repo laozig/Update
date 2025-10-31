@@ -3,7 +3,7 @@
 [![node-lts](https://img.shields.io/node/v-lts/express.svg?style=flat-square)](https://nodejs.org/en/about/releases/)
 [![GitHub last commit](https://img.shields.io/github/last-commit/laozig/Update.svg?style=flat-square)](https://github.com/laozig/Update/commits/main)
 
-**[English](README.en.md) | 中文**
+中文
 
 一个基于 Node.js 和 Express.js 的简单、通用、支持多项目的应用程序自动更新服务器，配备图形化Web控制面板，用于管理项目、版本、上传更新文件及监控服务。
 
@@ -37,7 +37,7 @@
     *   查看和重置项目API密钥。
 *   **API 驱动**: 清晰的API端点，供客户端应用程序检查更新、下载文件；以及供（受保护的）管理工具上传新版本。
 *   **易于部署**: 可以作为独立的 Node.js 应用运行。推荐使用 PM2 进行生产环境管理以实现进程守护和日志管理。
-*   **自定义配置**: 通过 `server/config.json` 灵活配置服务器端口、IP/域名、用户账户及各个项目的具体设置。
+*   **自定义配置**: 通过 `server/config.json` 配置端口与项目；对外地址优先使用环境变量 `BASE_URL`，未设置时由服务自动根据请求识别协议与主机名（已启用 `trust proxy`）。
 *   **文件名编码处理**: 优化了文件名处理逻辑，以正确支持包括中文在内的非ASCII字符文件名。
 *   **日志管理**: 控制面板服务会将操作日志记录到 `server.log`，并提供日志查看功能。主API服务日志输出到控制台。
 *   **JWT认证**: 使用JWT令牌进行用户认证，提高安全性。
@@ -166,10 +166,9 @@
 3.  **配置服务器 (`server/config.json`)**:
     *   如果 `server/config.json` 不存在，复制 `server/config.example.json` 为 `server/config.json`。
     *   **重要**: 打开并编辑 `server/config.json`：
-        *   设置 `server.serverIp` 为您服务器的公网IP地址或指向该服务器的域名。这是客户端构建下载链接所必需的。
-        *   修改 `server.adminUsername` 和 `server.adminPassword` 为安全的管理员凭据。
-        *   按需配置 `server.port` (API服务端口) 和 `server.adminPort` (控制面板端口)。
-        *   在 `projects` 数组中定义您的项目。每个项目应有唯一的 `id` 和强 `apiKey`。
+        *   按需配置 `server.port` (API 服务端口) 和 `server.adminPort` (控制面板端口)。
+        *   在 `projects` 数组中定义您的项目。每个项目应有唯一的 `id` 和安全的 `apiKey`。
+        *   可选：设置环境变量 `BASE_URL`（如 `https://updates.example.com`）固定对外地址；未设置时，服务将根据请求自动识别协议与主机名。
         ```json
         // server/config.json 示例片段
         {
@@ -184,7 +183,6 @@
             // 可以添加更多项目...
           ],
           "server": {
-            "serverIp": "YOUR_SERVER_IP_OR_DOMAIN", 
             "port": 3000,
             "adminPort": 8080,
             "adminUsername": "admin",
@@ -514,7 +512,7 @@ sudo systemctl restart nginx
 
 ## 8. 主要API端点
 
-(假设 API 服务运行在 `http://<serverIp>:<port>`)
+
 
 *   `GET /api/version/:projectId`:
     *   描述: 获取指定项目的最新版本信息。
@@ -577,7 +575,7 @@ Update/
     *   `apiKey` (String): 用于该项目上传API的认证密钥。**必须保密**。
     *   `icon` (String, Optional): 指向 `server/public/icons/` 目录下项目图标的路径。
 *   `server` (Object): 服务器全局配置。
-    *   `serverIp` (String): 服务器的公网IP或域名。**用于生成下载链接，非常重要**。
+    *   对外地址：优先使用环境变量 `BASE_URL`；未设置则根据请求自动识别（已启用 `trust proxy`）。
     *   `port` (Number): API服务监听的端口。
     *   `adminPort` (Number): 控制面板服务监听的端口。
     *   `adminUsername` (String): 控制面板登录用户名。
@@ -637,7 +635,7 @@ Update/
 *   **Q: 上传文件失败？**
     *   A: 确认请求头中 `x-api-key` 是否正确提供了对应项目的API密钥。检查上传文件的大小是否超过 `multer` 的限制（默认为100MB，可在代码中调整）。查看服务器磁盘空间。查看API服务 (`server/index.js`) 的日志获取详细错误。
 *   **Q: 客户端获取到的下载链接无效？**
-    *   A: 确保 `server/config.json` 中的 `server.serverIp` (以及 `server.port` 如果下载链接中包含端口) 配置正确，并且客户端可以从公网访问该IP/域名和端口。
+    *   A: 生产环境建议设置 `BASE_URL`（如 `https://updates.example.com`）；如果未设置，请确认反向代理正确传递 `X-Forwarded-Proto/Host`，并且客户端可以从公网访问对应域名和端口。
 *   **Q: 中文文件名显示乱码？**
     *   A: 最新版本已包含针对中文文件名的解码优化。如果仍有问题，请确保您使用的是最新代码，并检查客户端上传文件时是如何编码文件名的。清除旧的乱码文件和版本条目后重试。
 

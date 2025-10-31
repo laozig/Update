@@ -43,6 +43,8 @@ sudo ./start.sh
    - 默认账号: admin
    - 默认密码: admin
 
+> 提示：生产环境可设置环境变量 `BASE_URL`（如 `https://updates.example.com`），并在反向代理（如 Nginx）中传递 `X-Forwarded-Proto/Host`，以确保生成的下载链接协议与域名正确。
+
 ## 手动部署步骤
 
 如果一键部署脚本无法正常工作，可以按照以下步骤手动部署:
