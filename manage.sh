@@ -356,17 +356,13 @@ nginx_write_conf(){
     # Debian/Ubuntu 风格
     local conf="$sites_av/${name}"
     info "写入 Nginx 配置: $conf"
-    sudo bash -c 'cat > '"$conf" <<"CONF"
-'"$(nginx_conf_content)"'
-CONF'
+    nginx_conf_content | sudo tee "$conf" >/dev/null
     echo "$conf"
   else
     # RHEL/Alpine 风格
     local conf="$conf_d/${name}.conf"
     info "写入 Nginx 配置: $conf"
-    sudo bash -c 'cat > '"$conf" <<"CONF"
-'"$(nginx_conf_content)"'
-CONF'
+    nginx_conf_content | sudo tee "$conf" >/dev/null
     echo "$conf"
   fi
 }
