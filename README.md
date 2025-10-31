@@ -76,8 +76,10 @@ sudo ./manage.sh cert:issue
 ./manage.sh docker:logs     # 查看日志
 ./manage.sh docker:down     # 停止
 
-# 说明：首次生成的 Docker 端口默认映射到冷门宿主端口（API 33001->3000，UI 33081->8080），
-# 可通过环境变量覆盖：DOCKER_HOST_API_PORT / DOCKER_HOST_UI_PORT。
+# 说明：默认宿主与容器均使用冷门端口（API 33001，UI 33081），
+# 可通过环境变量覆盖：
+# DOCKER_HOST_API_PORT / DOCKER_CONTAINER_API_PORT
+# DOCKER_HOST_UI_PORT  / DOCKER_CONTAINER_UI_PORT
 ```
 
 ## 首次启动与安全
