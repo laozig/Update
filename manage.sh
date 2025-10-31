@@ -152,15 +152,13 @@ gen_compose_if_missing(){
   local file=$(compose_file)
   if [ -f "$file" ]; then return; fi
   info "未发现 $file，按默认端口生成..."
-  local apiPort uiPort hostApiPort hostUiPort containerApiPort containerUiPort
+  local apiPort uiPort hostApiPort hostUiPort
   apiPort=$(get_port_from_config port); uiPort=$(get_port_from_config adminPort)
   [ -n "$apiPort" ] || apiPort=$DEFAULT_API_PORT
   [ -n "$uiPort" ] || uiPort=$DEFAULT_UI_PORT
-  # 冷门端口：宿主与容器都使用冷门端口（可通过环境变量覆盖）
+  # 冷门端口仅用于宿主映射；容器继续使用应用默认端口（保持与应用内部期望一致）
   hostApiPort=${DOCKER_HOST_API_PORT:-33001}
   hostUiPort=${DOCKER_HOST_UI_PORT:-33081}
-  containerApiPort=${DOCKER_CONTAINER_API_PORT:-$hostApiPort}
-  containerUiPort=${DOCKER_CONTAINER_UI_PORT:-$hostUiPort}
 
   # 检查端口占用并寻找可用端口
   is_port_in_use() {
@@ -185,10 +183,7 @@ gen_compose_if_missing(){
   }
   hostApiPort=$(find_free_port "$hostApiPort")
   hostUiPort=$(find_free_port "$hostUiPort")
-  # 若容器端口与宿主起点相同，沿用；否则用户自定义
-  containerApiPort=$(find_free_port "$containerApiPort")
-  containerUiPort=$(find_free_port "$containerUiPort")
-  info "Docker 端口映射: API ${hostApiPort}->${containerApiPort}, UI ${hostUiPort}->${containerUiPort}"
+  info "Docker 端口映射: API ${hostApiPort}->${apiPort}, UI ${hostUiPort}->${uiPort}"
   cat > "$file" <<YML
 services:
   update-api:
@@ -196,23 +191,17 @@ services:
     working_dir: /app
     volumes:
       - ./:/app
-    environment:
-      - NODE_ENV=production
-      - PORT=${containerApiPort}
     command: ["sh","-lc","npm install --silent && node ${API_ENTRY}"]
     ports:
-      - "${hostApiPort}:${containerApiPort}"
+      - "${hostApiPort}:${apiPort}"
   update-ui:
     image: node:20-alpine
     working_dir: /app
     volumes:
       - ./:/app
-    environment:
-      - NODE_ENV=production
-      - ADMIN_PORT=${containerUiPort}
     command: ["sh","-lc","npm install --silent && node ${UI_ENTRY}"]
     ports:
-      - "${hostUiPort}:${containerUiPort}"
+      - "${hostUiPort}:${uiPort}"
 YML
   ok "已生成 $file"
 }
