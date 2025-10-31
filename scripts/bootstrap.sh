@@ -40,8 +40,37 @@ ensure_tools(){
   done
 }
 
+install_node(){
+  if command -v node >/dev/null 2>&1; then
+    info "Node.js 已安装: $(node -v)"; return
+  fi
+  local pm=$(detect_pm)
+  warn "未检测到 Node.js，开始安装..."
+  case "$pm" in
+    apt)
+      curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+      sudo apt-get install -y nodejs ;;
+    dnf)
+      curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
+      sudo dnf install -y nodejs ;;
+    yum)
+      curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
+      sudo yum install -y nodejs ;;
+    apk)
+      sudo apk add --no-cache nodejs npm ;;
+    *)
+      warn "无法识别包管理器，尝试使用 nvm 安装 Node.js LTS"
+      curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+      export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+      nvm install --lts
+      ;;
+  esac
+  ok "Node.js 安装完成: $(node -v)"
+}
+
 main(){
   ensure_tools
+  install_node
   info "安装目录: $INSTALL_DIR"
   if [ -d "$INSTALL_DIR/.git" ]; then
     info "检测到已有仓库，执行更新..."
