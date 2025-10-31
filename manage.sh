@@ -149,10 +149,38 @@ gen_compose_if_missing(){
   local file=$(compose_file)
   if [ -f "$file" ]; then return; fi
   info "未发现 $file，按默认端口生成..."
-  local apiPort uiPort
+  local apiPort uiPort hostApiPort hostUiPort
   apiPort=$(get_port_from_config port); uiPort=$(get_port_from_config adminPort)
   [ -n "$apiPort" ] || apiPort=$DEFAULT_API_PORT
   [ -n "$uiPort" ] || uiPort=$DEFAULT_UI_PORT
+  # 选择较冷门宿主机端口，避免与本地运行冲突；允许通过环境变量覆盖
+  hostApiPort=${DOCKER_HOST_API_PORT:-33001}
+  hostUiPort=${DOCKER_HOST_UI_PORT:-33081}
+
+  # 检查端口占用并寻找可用端口
+  is_port_in_use() {
+    local p="$1"
+    if command -v ss >/dev/null 2>&1; then
+      ss -ltn 2>/dev/null | awk '{print $4}' | grep -E ":${p}$" -q && return 0 || return 1
+    elif command -v lsof >/dev/null 2>&1; then
+      lsof -i :"$p" -sTCP:LISTEN >/dev/null 2>&1 && return 0 || return 1
+    elif command -v netstat >/dev/null 2>&1; then
+      netstat -ltn 2>/dev/null | awk '{print $4}' | grep -E ":${p}$" -q && return 0 || return 1
+    else
+      return 1
+    fi
+  }
+  find_free_port() {
+    local start="$1"; local p=$start; local limit=$((start+200))
+    while [ $p -le $limit ]; do
+      if ! is_port_in_use "$p"; then echo $p; return; fi
+      p=$((p+1))
+    done
+    echo "$start"
+  }
+  hostApiPort=$(find_free_port "$hostApiPort")
+  hostUiPort=$(find_free_port "$hostUiPort")
+  info "Docker 端口映射: API ${hostApiPort}->${apiPort}, UI ${hostUiPort}->${uiPort}"
   cat > "$file" <<YML
 services:
   update-api:
@@ -162,7 +190,7 @@ services:
       - ./:/app
     command: ["sh","-lc","npm install --silent && node ${API_ENTRY}"]
     ports:
-      - "${apiPort}:${apiPort}"
+      - "${hostApiPort}:${apiPort}"
     environment:
       - NODE_ENV=production
   update-ui:
@@ -172,7 +200,7 @@ services:
       - ./:/app
     command: ["sh","-lc","npm install --silent && node ${UI_ENTRY}"]
     ports:
-      - "${uiPort}:${uiPort}"
+      - "${hostUiPort}:${uiPort}"
     environment:
       - NODE_ENV=production
 YML
