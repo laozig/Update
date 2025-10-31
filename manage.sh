@@ -97,6 +97,20 @@ start_local(){
     nohup node "${UI_ENTRY}" >"${UI_LOG}" 2>&1 & echo $! >"${UI_PIDFILE}"
     ok "UI 启动，PID $(cat ${UI_PIDFILE})"
   fi
+  print_access_local
+}
+
+print_access_local(){
+  local hostIp
+  if command -v hostname >/dev/null 2>&1; then
+    hostIp=$(hostname -I 2>/dev/null | awk '{print $1}')
+  fi
+  [ -n "$hostIp" ] || hostIp="127.0.0.1"
+  echo ""
+  info "本地运行访问地址:"
+  echo "- UI:  http://${hostIp}:${ADMIN_PORT}"
+  echo "- API: http://${hostIp}:${PORT}"
+  echo ""
 }
 
 stop_local(){
@@ -206,10 +220,29 @@ YML
   ok "已生成 $file"
 }
 
-docker_up(){ ensure_compose; gen_compose_if_missing; $(docker_cmd) up -d; ok "Docker 已启动"; }
+docker_up(){ ensure_compose; gen_compose_if_missing; $(docker_cmd) up -d; ok "Docker 已启动"; docker_print_access; }
 docker_down(){ ensure_compose; $(docker_cmd) down; ok "Docker 已停止"; }
 docker_restart(){ docker_down; docker_up; }
 docker_logs(){ ensure_compose; $(docker_cmd) logs -f --tail=200 "$@"; }
+
+# 打印访问地址（宿主映射端口）
+docker_print_access(){
+  ensure_compose
+  local uiPort apiPort hostIp
+  # 读取当前映射端口
+  uiPort=$(docker ps --format '{{.Names}} {{.Ports}}' | awk '/update-ui/{print $0}' | sed -n 's/.*:\([0-9]\+\)->8080.*/\1/p' | head -n1)
+  apiPort=$(docker ps --format '{{.Names}} {{.Ports}}' | awk '/update-api/{print $0}' | sed -n 's/.*:\([0-9]\+\)->3000.*/\1/p' | head -n1)
+  # 计算宿主机IP（优先 hostname -I 第一个）
+  if command -v hostname >/dev/null 2>&1; then
+    hostIp=$(hostname -I 2>/dev/null | awk '{print $1}')
+  fi
+  [ -n "$hostIp" ] || hostIp="127.0.0.1"
+  echo ""
+  info "Docker 访问地址:"
+  [ -n "$uiPort" ] && echo "- UI:  http://${hostIp}:${uiPort}" || warn "未检测到 UI 端口映射"
+  [ -n "$apiPort" ] && echo "- API: http://${hostIp}:${apiPort}" || warn "未检测到 API 端口映射"
+  echo ""
+}
 
 pause_services(){ stop_local; warn "已暂停本地服务"; }
 resume_services(){ start_local; ok "已恢复本地服务"; }
