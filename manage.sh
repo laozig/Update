@@ -199,14 +199,11 @@ detect_os_pkg(){
 
 # ---------------- 卸载逻辑 ----------------
 uninstall_cmd(){
-  warn "即将停止服务、关闭 Docker、禁用 Nginx。可选清理数据。"
-  # 停止本地服务
+  warn "将删除本项目相关配置与文件（不卸载 Docker/Nginx 程序）。"
+  # 停止本地服务（仅当前项目的 Node 进程）
   stop_local || true
-  # 关闭 Docker（如存在）
-  if [ -f "$(compose_file)" ]; then
-    docker_down || true
-  fi
-  # 禁用 Nginx 配置
+  
+  # 删除 Nginx 站点配置（仅本站点），并重载
   nginx_disable || true
 
   # 询问是否清理数据
@@ -222,13 +219,14 @@ uninstall_cmd(){
     rm -rf node_modules || true
     rm -f api-server.log ui-server.log server.log || true
     rm -f api-server.pid ui-server.pid || true
+    # 仅删除 compose 文件，不操作 Docker 容器
     rm -f docker-compose.yml || true
     ok "数据清理完成"
   else
     warn "已跳过数据清理"
   fi
 
-  ok "卸载步骤完成（代码目录未删除）。如需彻底删除，可手动 rm -rf 项目目录。"
+  ok "卸载完成：已删除站点配置及项目文件（按选择）。未卸载 Docker/Nginx 程序本身。"
 }
 
 nginx_install(){
@@ -546,7 +544,7 @@ Nginx 反向代理:
   cert:renew        立即尝试续期证书并重载（系统建议用 cron 定时）
 
 卸载:
-  uninstall         停止服务、关闭 Docker、禁用 Nginx；可选清理数据（设置 UNINSTALL_PURGE=yes 跳过确认）
+  uninstall         删除本项目相关配置（Nginx 站点、compose 文件等），并可选清理数据
 
 其他:
   help              显示帮助
@@ -572,7 +570,7 @@ menu(){
   echo "13) Nginx 安装与配置"
   echo "14) 申请 HTTPS 证书 (Let’s Encrypt)"
   echo "15) 续期证书"
-  echo "16) 卸载 (停止/禁用，可选清理数据)"
+  echo "16) 卸载 (删除项目相关配置，可选清理数据)"
   echo "0) 退出"
   read -rp "请选择: " choice
   case "$choice" in

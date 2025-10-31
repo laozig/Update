@@ -39,7 +39,7 @@ cd Update
 ./manage.sh status
 ```
 - 常用：`./manage.sh start|stop|restart|update|docker:up|nginx:setup|cert:issue`
- - 卸载：`./manage.sh uninstall`（可设置 `UNINSTALL_PURGE=yes` 跳过确认并清理数据）
+ - 卸载：`./manage.sh uninstall`（删除本项目 Nginx 站点与 compose 文件；可选清理数据，`UNINSTALL_PURGE=yes` 跳过确认）
 
 ## 环境变量（推荐）
 - `BASE_URL`：对外地址（如 `https://updates.example.com`）；未设时按请求自动推断
