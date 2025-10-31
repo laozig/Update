@@ -86,7 +86,13 @@ main(){
 
   info "开始部署（安装依赖并启动）..."
   ./manage.sh deploy
-  ok "部署完成。常用命令：./manage.sh status | start | stop | nginx:setup | cert:issue"
+  ok "部署完成。"
+  echo
+  echo "下一步："
+  echo "  进入目录: cd $INSTALL_DIR"
+  echo "  管理命令: ./manage.sh status | start | stop | restart | update"
+  echo "           ./manage.sh nginx:setup | cert:issue | docker:up"
+  echo "  卸载（仅删项目配置/数据）: ./manage.sh uninstall   # 可配 UNINSTALL_PURGE=yes"
 }
 
 main "$@"
