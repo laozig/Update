@@ -206,7 +206,7 @@ services:
     volumes:
       - ./:/app
     # 在同一容器内同时运行 API 与 UI；API 后台运行，UI 前台保持容器生命周期
-    command: ["sh","-lc","npm install --silent && node ${API_ENTRY} & node ${UI_ENTRY}"]
+    command: ["sh","-lc","(npm ci --silent || npm install --silent) \\\n+      && (cd server && [ -f package.json ] && (npm ci --silent || npm install --silent) || true) \\\n+      && node ${API_ENTRY} & sleep 1 && node ${UI_ENTRY}"]
     ports:
       - "${hostApiPort}:${apiPort}"
       - "${hostUiPort}:${uiPort}"
