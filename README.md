@@ -40,7 +40,7 @@ manage.bat status   :: 查看状态
 ```bash
 git clone https://github.com/laozig/Update.git
 cd Update
-./manage.sh          # 无参数：安装依赖并启动 API/UI，然后显示状态
+./manage.sh          # 无参数：显示交互式菜单
 ```
 - 常用：`./manage.sh start|stop|restart|update|docker:up|nginx:setup|cert:issue`
  - 卸载：`./manage.sh uninstall`（删除本项目 Nginx 站点与 compose 文件；可选清理数据，`UNINSTALL_PURGE=yes` 跳过确认）

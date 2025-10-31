@@ -573,7 +573,7 @@ Nginx 反向代理:
 其他:
   help              显示帮助
 
-无参数时：执行启动流程（安装依赖 + 启动），随后显示状态。
+无参数时：显示交互式菜单。
 EOF
 }
 
@@ -641,7 +641,7 @@ case "$cmd" in
   cert:renew) cert_renew ;;
   uninstall) uninstall_cmd ;;
   help|-h|--help) show_help ;;
-  "") deploy_local; status_local ;;
+  "") show_help; menu ;;
   *) err "未知命令: $cmd"; echo; show_help; exit 1 ;;
 esac
 
