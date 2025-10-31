@@ -119,6 +119,17 @@ const saveConfig = () => {
 const authenticateJWT = (req, res, next) => {
   const authHeader = req.headers.authorization;
   
+  // 公共与免认证路径
+  if (
+    req.path.startsWith('/api/version/') ||
+    req.path.startsWith('/download/') ||
+    req.path === '/api/login' ||
+    req.path === '/api/register' ||
+    req.path === '/api/health'
+  ) {
+    return next();
+  }
+
   if (authHeader) {
     const token = authHeader.split(' ')[1];
     
@@ -131,17 +142,7 @@ const authenticateJWT = (req, res, next) => {
       next();
     });
   } else {
-    // 对于公共API，如版本检查，不需要认证
-    if (req.path.startsWith('/api/version/')) {
-      return next();
-    }
-    
-    // 对于下载API，需要进一步检查项目是否公开
-    if (req.path.startsWith('/download/')) {
-      return next();
-    }
-    
-    res.status(401).json({ error: '需要认证' });
+    return res.status(401).json({ error: '需要认证' });
   }
 };
 
@@ -380,6 +381,34 @@ try {
 }
 
 // 路由
+// 登录（公开）
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ error: '缺少用户名或密码' });
+  }
+  const user = config.users.find(u => u.username === username);
+  if (!user) {
+    return res.status(401).json({ error: '用户名或密码错误' });
+  }
+  const stored = user.password || '';
+  let ok = false;
+  try {
+    if (stored.startsWith('$2')) {
+      ok = bcrypt.compareSync(password, stored);
+    } else {
+      ok = password === stored;
+    }
+  } catch (e) {
+    ok = false;
+  }
+  if (!ok) {
+    return res.status(401).json({ error: '用户名或密码错误' });
+  }
+  const token = jwt.sign({ username: user.username, role: user.role || 'user' }, JWT_SECRET, { expiresIn: process.env.JWT_EXPIRY || '24h' });
+  const safeUser = { username: user.username, role: user.role || 'user', email: user.email };
+  res.json({ token, user: safeUser });
+});
 
 // 获取项目列表
 app.get('/api/projects', (req, res) => {
