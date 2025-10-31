@@ -224,6 +224,13 @@ checkApiServerStatus();
 
 // 中间件
 app.use(express.static(path.join(__dirname, 'public')));
+// 显式映射登录/注册页，防止某些中间件顺序导致静态文件未命中
+app.get(['/', '/login', '/login.html'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+app.get(['/register', '/register.html'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'register.html'));
+});
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
