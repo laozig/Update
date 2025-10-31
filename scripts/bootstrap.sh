@@ -101,7 +101,7 @@ main(){
   echo "  进入目录: cd $INSTALL_DIR"
   echo "  启动（本地）: ./manage.sh deploy    # 或 update-manage deploy"
   echo "  常用命令:     ./manage.sh status | start | stop | restart | update"
-  echo "               ./manage.sh nginx:setup | cert:issue | docker:up"
+  echo "               ./manage.sh nginx:setup | cert:issue"
   echo "  卸载（仅删项目配置/数据）: ./manage.sh uninstall   # 可配 UNINSTALL_PURGE=yes"
 
   # 可选：创建全局可执行入口，方便任意目录运行

@@ -12,7 +12,7 @@
 - 首启安全：无用户时自动生成随机管理员（写入 `server/first-run-admin.txt`）或用环境变量创建
 - Nginx 一键反代：交互式生成/启用站点；可选 HTTPS
 - Let’s Encrypt：一键申请证书并自动配置续签（cron）
-- Docker：本地开发与简单部署一键 Compose
+-- Docker：已取消支持（当前版本不再提供 Docker 部署）
 - 大文件优化：可配置上传上限（支持 `1g`/`500m` 等）
 
 ## 快速开始
@@ -33,7 +33,7 @@ cd Update
 manage.bat deploy   :: 安装依赖并启动（等同 ./manage.sh deploy）
 manage.bat status   :: 查看状态
 ```
-- 常用：`manage.bat start|stop|restart|update|docker:up|nginx:setup|cert:issue`
+- 常用：`manage.bat start|stop|restart|update|nginx:setup|cert:issue`
 - 若提示未找到 Bash/WSL，请安装 Git Bash 或启用 WSL
 
 ### Linux/macOS
@@ -42,7 +42,7 @@ git clone https://github.com/laozig/Update.git
 cd Update
 ./manage.sh          # 无参数：显示交互式菜单
 ```
-- 常用：`./manage.sh start|stop|restart|update|docker:up|nginx:setup|cert:issue`
+- 常用：`./manage.sh start|stop|restart|update|nginx:setup|cert:issue`
  - 卸载：`./manage.sh uninstall`（删除本项目 Nginx 站点与 compose 文件；可选清理数据，`UNINSTALL_PURGE=yes` 跳过确认）
 
 ## 环境变量（推荐）
@@ -70,17 +70,8 @@ sudo ./manage.sh cert:issue
 # 自动写入 cron：每天 3:00 续签并重载 Nginx
 ```
 
-## Docker（可选）
-```bash
-./manage.sh docker:up       # 生成/启动 compose（缺失时自动生成，挂载源码，容器内 npm install）
-./manage.sh docker:logs     # 查看日志
-./manage.sh docker:down     # 停止
-
-# 说明：默认宿主与容器均使用冷门端口（API 33001，UI 33081），
-# 可通过环境变量覆盖：
-# DOCKER_HOST_API_PORT / DOCKER_CONTAINER_API_PORT
-# DOCKER_HOST_UI_PORT  / DOCKER_CONTAINER_UI_PORT
-```
+## 关于 Docker
+本版本起不再提供 Docker 部署脚本与说明，请使用本地方式启动并按需配置 Nginx/证书。
 
 ## 首次启动与安全
 - 首次无用户：自动生成 `admin-xxxxxx` 与 16 位强密码，写入 `server/first-run-admin.txt`（仅一次性提示），`config.json` 中存储 bcrypt 哈希

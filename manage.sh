@@ -145,98 +145,22 @@ deploy_local(){
   restart_local
 }
 
-# Docker 相关
-compose_file(){
-  echo "docker-compose.yml"
-}
+## Docker 支持已移除（如需恢复请使用历史版本）
 
-ensure_compose(){
-  need_cmd docker
-  if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev/null 2>&1; then
-    err "未检测到 Docker Compose"
-    exit 1
+# 彻底移除与本项目相关的 Docker 资源（容器/网络/镜像）并删除 compose 文件
+docker_purge(){
+  warn "即将移除与本项目相关的 Docker 资源..."
+  # 先尝试正常 down
+  if [ -f "$(compose_file)" ]; then
+    $(docker_cmd) down || true
+    rm -f "$(compose_file)" || true
   fi
-}
-
-docker_cmd(){
-  if docker compose version >/dev/null 2>&1; then echo "docker compose"; else echo "docker-compose"; fi
-}
-
-gen_compose_if_missing(){
-  local file=$(compose_file)
-  if [ -f "$file" ]; then return; fi
-  info "未发现 $file，按默认端口生成..."
-  local apiPort uiPort hostApiPort hostUiPort
-  apiPort=$(get_port_from_config port); uiPort=$(get_port_from_config adminPort)
-  [ -n "$apiPort" ] || apiPort=$DEFAULT_API_PORT
-  [ -n "$uiPort" ] || uiPort=$DEFAULT_UI_PORT
-  # 冷门端口仅用于宿主映射；容器继续使用应用默认端口（保持与应用内部期望一致）
-  hostApiPort=${DOCKER_HOST_API_PORT:-33001}
-  hostUiPort=${DOCKER_HOST_UI_PORT:-33081}
-
-  # 检查端口占用并寻找可用端口
-  is_port_in_use() {
-    local p="$1"
-    if command -v ss >/dev/null 2>&1; then
-      ss -ltn 2>/dev/null | awk '{print $4}' | grep -E ":${p}$" -q && return 0 || return 1
-    elif command -v lsof >/dev/null 2>&1; then
-      lsof -i :"$p" -sTCP:LISTEN >/dev/null 2>&1 && return 0 || return 1
-    elif command -v netstat >/dev/null 2>&1; then
-      netstat -ltn 2>/dev/null | awk '{print $4}' | grep -E ":${p}$" -q && return 0 || return 1
-    else
-      return 1
-    fi
-  }
-  find_free_port() {
-    local start="$1"; local p=$start; local limit=$((start+200))
-    while [ $p -le $limit ]; do
-      if ! is_port_in_use "$p"; then echo $p; return; fi
-      p=$((p+1))
-    done
-    echo "$start"
-  }
-  hostApiPort=$(find_free_port "$hostApiPort")
-  hostUiPort=$(find_free_port "$hostUiPort")
-  info "Docker 端口映射: API ${hostApiPort}->${apiPort}, UI ${hostUiPort}->${uiPort}"
-  cat > "$file" <<YML
-services:
-  update:
-    image: node:20-alpine
-    working_dir: /app
-    volumes:
-      - ./:/app
-    # 在同一容器内同时运行 API 与 UI；API 后台运行，UI 前台保持容器生命周期
-    command: ["sh","-lc","set -e; if [ -f package-lock.json ] || [ -f package.json ]; then npm ci --silent || npm install --silent; fi; if [ -f server/package.json ]; then (cd server && (npm ci --silent || npm install --silent)); fi; node ${API_ENTRY} & sleep 1; node ${UI_ENTRY}"]
-    ports:
-      - "${hostApiPort}:${apiPort}"
-      - "${hostUiPort}:${uiPort}"
-YML
-  ok "已生成 $file"
-}
-
-docker_up(){ ensure_compose; gen_compose_if_missing; $(docker_cmd) up -d; ok "Docker 已启动"; docker_print_access; }
-docker_down(){ ensure_compose; $(docker_cmd) down; ok "Docker 已停止"; }
-docker_restart(){ docker_down; docker_up; }
-docker_logs(){ ensure_compose; $(docker_cmd) logs -f --tail=200 "$@"; }
-
-# 打印访问地址（宿主映射端口）
-docker_print_access(){
-  ensure_compose
-  local uiPort apiPort hostIp
-  # 读取当前映射端口
-  # 兼容单容器(update)或双容器(update-ui/update-api)两种命名
-  uiPort=$(docker ps --format '{{.Names}} {{.Ports}}' | awk '/update(-update-ui)?/{print $0}' | sed -n 's/.*:\([0-9]\+\)->8080.*/\1/p' | head -n1)
-  apiPort=$(docker ps --format '{{.Names}} {{.Ports}}' | awk '/update(-update-api)?/{print $0}' | sed -n 's/.*:\([0-9]\+\)->3000.*/\1/p' | head -n1)
-  # 计算宿主机IP（优先 hostname -I 第一个）
-  if command -v hostname >/dev/null 2>&1; then
-    hostIp=$(hostname -I 2>/dev/null | awk '{print $1}')
-  fi
-  [ -n "$hostIp" ] || hostIp="127.0.0.1"
-  echo ""
-  info "Docker 访问地址:"
-  [ -n "$uiPort" ] && echo "- UI:  http://${hostIp}:${uiPort}" || warn "未检测到 UI 端口映射"
-  [ -n "$apiPort" ] && echo "- API: http://${hostIp}:${apiPort}" || warn "未检测到 API 端口映射"
-  echo ""
+  # 按名称特征清理容器/镜像/网络
+  # 容器名称可能为 update、update-update-api-1、update-update-ui-1 等
+  docker ps -a --format '{{.Names}}' | awk '/^update($|-)/{print $0}' | xargs -r -I{} docker rm -f {} || true
+  docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | awk '/^update($|:)/{print $2}' | xargs -r docker rmi -f || true
+  docker network ls --format '{{.Name}}' | awk '/^update_default$/{print $0}' | xargs -r docker network rm || true
+  ok "Docker 相关资源已清理；已删除 docker-compose.yml。"
 }
 
 pause_services(){ stop_local; warn "已暂停本地服务"; }
@@ -315,27 +239,13 @@ nginx_paths(){
 
 nginx_conf_content(){
   local apiPort uiPort maxBody domain enableHttps certPath keyPath redirectWww
-  # 解析上游端口：若检测到 Docker 正在运行，优先使用宿主映射端口；否则使用本地/配置端口
-  detect_docker_upstreams(){
-    local dApi dUi
-    if command -v docker >/dev/null 2>&1; then
-      # 提取 host 映射到容器 3000/8080 的端口
-      dApi=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | awk '/update-api/{print $0}' | sed -n 's/.*:\([0-9]\+\)->3000.*/\1/p' | head -n1)
-      dUi=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | awk '/update-ui/{print $0}' | sed -n 's/.*:\([0-9]\+\)->8080.*/\1/p' | head -n1)
-    fi;
-    echo "${dApi:-}" "${dUi:-}"
-  }
-  read -r dApi dUi < <(detect_docker_upstreams)
-  if [ -n "$dApi" ] && [ -n "$dUi" ]; then
-    apiPort="$dApi"; uiPort="$dUi"
-  else
-    # 回退到本地环境变量或配置
-    apiPort=${PORT:-}; uiPort=${ADMIN_PORT:-}
-    [ -n "$apiPort" ] || apiPort=$(get_port_from_config port)
-    [ -n "$uiPort" ] || uiPort=$(get_port_from_config adminPort)
-    [ -n "$apiPort" ] || apiPort=$DEFAULT_API_PORT
-    [ -n "$uiPort" ] || uiPort=$DEFAULT_UI_PORT
-  fi
+  # 解析上游端口：使用本地环境变量或配置
+  apiPort=${PORT:-}
+  uiPort=${ADMIN_PORT:-}
+  [ -n "$apiPort" ] || apiPort=$(get_port_from_config port)
+  [ -n "$uiPort" ] || uiPort=$(get_port_from_config adminPort)
+  [ -n "$apiPort" ] || apiPort=$DEFAULT_API_PORT
+  [ -n "$uiPort" ] || uiPort=$DEFAULT_UI_PORT
   maxBody=${NGX_MAX_BODY:-${MAX_UPLOAD_SIZE:-1g}}
   domain=${NGX_SERVER_NAME:-${SERVER_NAME:-_}}
   enableHttps=${NGX_ENABLE_HTTPS:-no}
@@ -605,6 +515,7 @@ Docker:
   docker:down       停止并移除
   docker:restart    重启
   docker:logs [svc] 查看日志（可选指定服务名）
+  docker:purge      彻底移除与本项目相关容器/网络/镜像，并删除 compose 文件
 
 Nginx 反向代理:
   nginx:setup       安装 Nginx 并生成/启用反代配置（API/UI）
@@ -636,10 +547,7 @@ menu(){
   echo "6) 更新代码"
   echo "7) 暂停"
   echo "8) 恢复"
-  echo "9) Docker 启动"
-  echo "10) Docker 停止"
-  echo "11) Docker 重启"
-  echo "12) Docker 日志"
+  # Docker 相关项已移除
   echo "13) Nginx 安装与配置"
   echo "14) 申请 HTTPS 证书 (Let’s Encrypt)"
   echo "15) 续期证书"
@@ -655,10 +563,6 @@ menu(){
     6) update_code;;
     7) pause_services;;
     8) resume_services;;
-    9) docker_up;;
-    10) docker_down;;
-    11) docker_restart;;
-    12) docker_logs;;
     13) nginx_setup;;
     14) cert_issue;;
     15) cert_renew;;
@@ -678,10 +582,7 @@ case "$cmd" in
   update) update_code ;;
   pause) pause_services ;;
   resume) resume_services ;;
-  docker:up) docker_up ;;
-  docker:down) docker_down ;;
-  docker:restart) docker_restart ;;
-  docker:logs) shift || true; docker_logs "$@" ;;
+  # Docker 命令已移除
   nginx:setup) nginx_setup ;;
   nginx:enable) nginx_enable ;;
   nginx:disable) nginx_disable ;;
