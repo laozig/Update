@@ -398,6 +398,10 @@ server {
   listen 80;
   server_name ${domain};
   client_max_body_size ${maxBody};
+  # ACME 验证 (Let’s Encrypt) - 确保 webroot 挑战可达
+  location /.well-known/acme-challenge/ {
+    root /var/www/html;
+  }
 
   location /api/ {
     proxy_pass http://127.0.0.1:${apiPort}/api/;
