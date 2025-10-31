@@ -7,7 +7,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 33001;
 // 在反向代理（如 Nginx）后时，正确识别协议和客户端 IP
 app.set('trust proxy', 1);
 

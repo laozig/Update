@@ -22,7 +22,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // 控制面板应用
 const app = express();
-const uiPort = 8080;
+const uiPort = process.env.ADMIN_PORT ? Number(process.env.ADMIN_PORT) : 33081;
 // 在反向代理（如 Nginx）后时，正确识别协议和客户端 IP
 app.set('trust proxy', 1);
 
@@ -61,8 +61,8 @@ let config = {
     }
   ],
   server: {
-    port: 3000,
-    adminPort: 8080,
+    port: 33001,
+    adminPort: 33081,
     serverIp: null
   }
 };
@@ -1683,7 +1683,7 @@ function sendNotification(title, message, level = 'info', role = null, username 
 }
 
 // 启动服务器
-server.listen(config.server.adminPort, () => {
+server.listen(process.env.ADMIN_PORT ? Number(process.env.ADMIN_PORT) : (config.server.adminPort || uiPort), () => {
   const os = require('os');
   const interfaces = os.networkInterfaces();
   let lanIp = null;
@@ -1696,11 +1696,12 @@ server.listen(config.server.adminPort, () => {
     }
     if (lanIp) break;
   }
-  console.log(`控制面板运行在 http://localhost:${config.server.adminPort}`);
+  const listenPort = process.env.ADMIN_PORT ? Number(process.env.ADMIN_PORT) : (config.server.adminPort || uiPort);
+  console.log(`控制面板运行在 http://localhost:${listenPort}`);
   if (lanIp) {
-    console.log(`局域网访问地址: http://${lanIp}:${config.server.adminPort}`);
+    console.log(`局域网访问地址: http://${lanIp}:${listenPort}`);
   }
-  serverLogs.push(`控制面板已启动，端口: ${config.server.adminPort}`);
+  serverLogs.push(`控制面板已启动，端口: ${listenPort}`);
 });
 
 // 全局错误处理中间件
