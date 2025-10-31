@@ -70,7 +70,11 @@ install_node(){
 
 main(){
   ensure_tools
-  install_node
+  if [ "${INSTALL_NODE:-no}" = "yes" ]; then
+    install_node
+  else
+    warn "未自动安装 Node.js（设置 INSTALL_NODE=yes 可自动安装）"
+  fi
   info "安装目录: $INSTALL_DIR"
   if [ -d "$INSTALL_DIR/.git" ]; then
     info "检测到已有仓库，执行更新..."
@@ -84,18 +88,24 @@ main(){
   cd "$INSTALL_DIR"
   chmod +x manage.sh || true
 
-  info "开始部署（安装依赖并启动）..."
-  ./manage.sh deploy
-  ok "部署完成。"
+  if [ "${AUTO_DEPLOY:-no}" = "yes" ]; then
+    info "开始部署（安装依赖并启动）..."
+    ./manage.sh deploy
+    ok "部署完成。"
+  else
+    warn "已完成下载与准备，但未自动启动（按你的要求）。"
+  fi
+
   echo
   echo "下一步："
   echo "  进入目录: cd $INSTALL_DIR"
-  echo "  管理命令: ./manage.sh status | start | stop | restart | update"
-  echo "           ./manage.sh nginx:setup | cert:issue | docker:up"
+  echo "  启动（本地）: ./manage.sh deploy    # 或 update-manage deploy"
+  echo "  常用命令:     ./manage.sh status | start | stop | restart | update"
+  echo "               ./manage.sh nginx:setup | cert:issue | docker:up"
   echo "  卸载（仅删项目配置/数据）: ./manage.sh uninstall   # 可配 UNINSTALL_PURGE=yes"
 
   # 可选：创建全局可执行入口，方便任意目录运行
-  if [ "${CREATE_WRAPPER:-yes}" = "yes" ]; then
+  if [ "${CREATE_WRAPPER:-no}" = "yes" ]; then
     WRAP=/usr/local/bin/update-manage
     if [ -w "/usr/local/bin" ] || sudo -n true 2>/dev/null; then
       info "创建全局入口: $WRAP"
