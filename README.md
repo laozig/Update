@@ -20,7 +20,12 @@
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/laozig/Update/main/scripts/bootstrap.sh)
 ```
-可选：`INSTALL_DIR` `SERVER_NAME` `MAX_UPLOAD_SIZE`
+说明：默认只下载与准备，不自动启动。首启请手动进入目录并执行：
+```bash
+cd <INSTALL_DIR>   # 默认 $HOME/Update 或你自定义的 INSTALL_DIR
+./manage.sh deploy
+```
+可选环境变量：`INSTALL_DIR` `SERVER_NAME` `MAX_UPLOAD_SIZE`（若要自动启动可设 `AUTO_DEPLOY=yes`）
 ### Windows（推荐）
 ```bat
 git clone https://github.com/laozig/Update.git
@@ -35,8 +40,7 @@ manage.bat status   :: 查看状态
 ```bash
 git clone https://github.com/laozig/Update.git
 cd Update
-./manage.sh deploy   # 安装依赖并启动 API/UI
-./manage.sh status
+./manage.sh          # 无参数：安装依赖并启动 API/UI，然后显示状态
 ```
 - 常用：`./manage.sh start|stop|restart|update|docker:up|nginx:setup|cert:issue`
  - 卸载：`./manage.sh uninstall`（删除本项目 Nginx 站点与 compose 文件；可选清理数据，`UNINSTALL_PURGE=yes` 跳过确认）
