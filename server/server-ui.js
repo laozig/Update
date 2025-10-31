@@ -53,7 +53,7 @@ let config = {
   server: {
     port: 3000,
     adminPort: 8080,
-    serverIp: '103.97.179.230'
+    serverIp: null
   }
 };
 
@@ -995,7 +995,7 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
     const newVersionInfo = {
       version,
       releaseDate: new Date().toISOString(),
-      downloadUrl: `http://${config.server.serverIp || 'localhost'}/download/${projectId}/${version}`,
+      downloadUrl: `http://${req.headers.host}/download/${projectId}/${version}`,
       releaseNotes: releaseNotes || `版本 ${version} 更新`,
       fileName: newFileName,                 
       originalFileName: originalNameWithoutExt 
@@ -1666,7 +1666,22 @@ function sendNotification(title, message, level = 'info', role = null, username 
 
 // 启动服务器
 server.listen(config.server.adminPort, () => {
+  const os = require('os');
+  const interfaces = os.networkInterfaces();
+  let lanIp = null;
+  for (const name of Object.keys(interfaces)) {
+    for (const net of interfaces[name]) {
+      if (net.family === 'IPv4' && !net.internal) {
+        lanIp = net.address;
+        break;
+      }
+    }
+    if (lanIp) break;
+  }
   console.log(`控制面板运行在 http://localhost:${config.server.adminPort}`);
+  if (lanIp) {
+    console.log(`局域网访问地址: http://${lanIp}:${config.server.adminPort}`);
+  }
   serverLogs.push(`控制面板已启动，端口: ${config.server.adminPort}`);
 });
 

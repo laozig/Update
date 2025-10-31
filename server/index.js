@@ -175,9 +175,14 @@ const checkProjectOwnership = (req, res, next) => {
   }
 };
 
-// CORS 配置
+// CORS 配置（开发环境放开，生产按配置限制）
 app.use(cors({
   origin: function(origin, callback) {
+    // 开发环境：放开所有来源，便于本地调试
+    if (process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+
     const allowedOrigins = [
       `http://${config.server.serverIp || 'localhost'}`,
       `https://${config.server.serverIp || 'localhost'}`,
@@ -186,7 +191,6 @@ app.use(cors({
       'http://127.0.0.1',
       'https://127.0.0.1'
     ];
-    // 允许没有来源的请求（如移动应用）或允许的来源
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -342,7 +346,8 @@ app.get('/api/version/:projectId', (req, res) => {
   }
   
   const latestVersion = {...versions[0]};
-  // downloadUrl 和 fileName 都应该从 loadVersions 中正确获取，依赖于上传时保存的正确数据
+  // 使用请求Host动态生成下载地址，避免固定IP
+  latestVersion.downloadUrl = `http://${req.headers.host}/download/${projectId}/${latestVersion.version}`;
   
   res.json(latestVersion);
 });
@@ -395,7 +400,7 @@ app.post('/api/upload/:projectId', apiKeyAuth, upload.single('file'), (req, res)
     const newVersionInfo = {
       version,
       releaseDate: new Date().toISOString(),
-      downloadUrl: `http://${config.server.serverIp || 'localhost'}/download/${projectId}/${version}`,
+      downloadUrl: `http://${req.headers.host}/download/${projectId}/${version}`,
       releaseNotes: releaseNotes || `版本 ${version} 更新`,
       fileName: newFileName,                 
       originalFileName: originalNameWithoutExt 
