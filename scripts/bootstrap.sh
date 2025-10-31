@@ -93,6 +93,22 @@ main(){
   echo "  管理命令: ./manage.sh status | start | stop | restart | update"
   echo "           ./manage.sh nginx:setup | cert:issue | docker:up"
   echo "  卸载（仅删项目配置/数据）: ./manage.sh uninstall   # 可配 UNINSTALL_PURGE=yes"
+
+  # 可选：创建全局可执行入口，方便任意目录运行
+  if [ "${CREATE_WRAPPER:-yes}" = "yes" ]; then
+    WRAP=/usr/local/bin/update-manage
+    if [ -w "/usr/local/bin" ] || sudo -n true 2>/dev/null; then
+      info "创建全局入口: $WRAP"
+      sudo tee "$WRAP" >/dev/null <<WRAP
+#!/usr/bin/env bash
+cd "$INSTALL_DIR" && exec ./manage.sh "$@"
+WRAP
+      sudo chmod +x "$WRAP" || true
+      ok "已创建入口。现在可在任意目录运行： update-manage status"
+    else
+      warn "无法写入 /usr/local/bin（无 sudo 权限），跳过创建全局入口。"
+    fi
+  fi
 }
 
 main "$@"
