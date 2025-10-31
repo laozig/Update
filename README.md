@@ -1,3 +1,105 @@
+# Node.js 多项目自动更新服务器（一键脚本 / Nginx / HTTPS / Docker）
+
+基于 Node.js + Express 的多项目更新分发服务，内置图形化控制面板；支持多用户与项目隔离、API 上传/下载、Nginx 反代、Let’s Encrypt 一键证书与自动续签、Docker 一键部署。
+
+仓库：`https://github.com/laozig/Update.git`
+
+## 功能特性
+- 多项目隔离：`projectId` + `x-api-key`
+- 多用户/权限：管理员与普通用户，项目所有权校验
+- 版本管理：上传包自动重命名附加版本号，生成下载链接
+- 控制面板：浏览器管理项目/版本/日志
+- 首启安全：无用户时自动生成随机管理员（写入 `server/first-run-admin.txt`）或用环境变量创建
+- Nginx 一键反代：交互式生成/启用站点；可选 HTTPS
+- Let’s Encrypt：一键申请证书并自动配置续签（cron）
+- Docker：本地开发与简单部署一键 Compose
+- 大文件优化：可配置上传上限（支持 `1g`/`500m` 等）
+
+## 快速开始
+### Windows（推荐）
+```bat
+git clone https://github.com/laozig/Update.git
+cd Update
+manage.bat deploy   :: 安装依赖并启动（等同 ./manage.sh deploy）
+manage.bat status   :: 查看状态
+```
+- 常用：`manage.bat start|stop|restart|update|docker:up|nginx:setup|cert:issue`
+- 若提示未找到 Bash/WSL，请安装 Git Bash 或启用 WSL
+
+### Linux/macOS
+```bash
+git clone https://github.com/laozig/Update.git
+cd Update
+./manage.sh deploy   # 安装依赖并启动 API/UI
+./manage.sh status
+```
+- 常用：`./manage.sh start|stop|restart|update|docker:up|nginx:setup|cert:issue`
+
+## 环境变量（推荐）
+- `BASE_URL`：对外地址（如 `https://updates.example.com`）；未设时按请求自动推断
+- `JWT_SECRET`：JWT 密钥（强随机值）
+- `ADMIN_USERNAME`、`ADMIN_PASSWORD`：首启创建固定管理员（未提供则自动生成随机管理员并写入 `server/first-run-admin.txt`）
+- `MAX_UPLOAD_SIZE`：上传大小上限（如 `1gb`、`500mb`，默认 100MB）
+
+## 一键脚本命令（节选）
+- 本地：`start` `stop` `restart` `status` `deploy` `update` `pause` `resume`
+- Docker：`docker:up` `docker:down` `docker:restart` `docker:logs [svc]`
+- Nginx：`nginx:setup`（交互式向导） `nginx:enable` `nginx:disable` `nginx:reload`
+- 证书：`cert:issue`（申请并自动续签） `cert:renew`
+
+## Nginx 与证书（一键）
+- 反代向导：
+```bash
+sudo ./manage.sh nginx:setup
+# 交互输入域名、最大上传大小，选择是否启用 HTTPS（可填已有证书路径）
+```
+- 申请证书并自动续签：
+```bash
+sudo ./manage.sh cert:issue
+# webroot 模式申请 Let’s Encrypt；自动写入 Nginx 配置并开启 443
+# 自动写入 cron：每天 3:00 续签并重载 Nginx
+```
+
+## Docker（可选）
+```bash
+./manage.sh docker:up       # 生成/启动 compose（缺失时自动生成，挂载源码，容器内 npm install）
+./manage.sh docker:logs     # 查看日志
+./manage.sh docker:down     # 停止
+```
+
+## 首次启动与安全
+- 首次无用户：自动生成 `admin-xxxxxx` 与 16 位强密码，写入 `server/first-run-admin.txt`（仅一次性提示），`config.json` 中存储 bcrypt 哈希
+- 或通过环境变量预置：`ADMIN_USERNAME` + `ADMIN_PASSWORD`
+- 设置强随机 `JWT_SECRET`，生产务必启用 HTTPS
+
+## 核心 API
+- `GET /api/version/:projectId` 获取最新版本（公开）
+- `GET /download/:projectId/latest` 下载最新版本
+- `GET /download/:projectId/:version` 下载指定版本
+- `POST /api/upload/:projectId` 上传版本（需 `x-api-key`）；表单字段：`file`、`version`、`releaseNotes?`
+
+## 目录结构（简）
+```
+Update/
+├── server/
+│   ├── index.js          # API
+│   ├── server-ui.js      # 控制面板
+│   ├── config.json       # 运行期生成/维护
+│   └── projects/         # 每项目的 version.json 与 uploads/
+├── manage.sh             # 核心一键脚本（Linux/macOS/WSL）
+├── manage.bat            # Windows 入口（调用 manage.sh）
+├── package.json
+└── README.md
+```
+
+## 常见问题（FAQ）
+- 上传超过限制？设置 `MAX_UPLOAD_SIZE=1gb`，并在 Nginx 中匹配 `client_max_body_size`
+- 首次登录账号？未配置 `ADMIN_PASSWORD` 时，查看 `server/first-run-admin.txt`
+- 下载链接不正确？设置 `BASE_URL=https://你的域名`，并确保反向代理传递 `X-Forwarded-*` 头
+- Windows 脚本？用 `manage.bat <命令>`，需要 Git Bash 或 WSL
+
+## 许可证
+MIT
 # Node.js 多项目自动更新服务器
 
 [![node-lts](https://img.shields.io/node/v-lts/express.svg?style=flat-square)](https://nodejs.org/en/about/releases/)
