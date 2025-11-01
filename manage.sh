@@ -250,6 +250,126 @@ update_code(){
   fi
 }
 
+check_and_update(){
+  # 检查更新并自动拉取
+  echo ""
+  echo -e "${CYAN}========================================${NC}"
+  echo -e "${CYAN}         检查更新${NC}"
+  echo -e "${CYAN}========================================${NC}"
+  echo ""
+  
+  if [ ! -d .git ]; then
+    warn "未检测到 Git 仓库，无法检查更新"
+    return 1
+  fi
+  
+  need_cmd git
+  
+  step "1/4 检查远程仓库状态..."
+  # 获取远程仓库地址
+  local remote_url
+  remote_url=$(git remote get-url origin 2>/dev/null || echo "")
+  
+  if [ -z "$remote_url" ]; then
+    warn "未配置远程仓库地址，无法检查更新"
+    info "提示: 使用 'git remote add origin <URL>' 添加远程仓库"
+    return 1
+  fi
+  
+  info "远程仓库: ${remote_url}"
+  
+  step "2/4 获取远程更新信息..."
+  # 获取远程更新（不合并）
+  if ! git fetch origin 2>&1; then
+    err "获取远程信息失败，请检查网络连接和仓库配置"
+    return 1
+  fi
+  
+  # 检查当前分支
+  local current_branch
+  current_branch=$(git branch --show-current 2>/dev/null || echo "main")
+  info "当前分支: ${current_branch}"
+  
+  # 检查是否有更新
+  local local_commit remote_commit
+  local_commit=$(git rev-parse HEAD 2>/dev/null || echo "")
+  remote_commit=$(git rev-parse "origin/${current_branch}" 2>/dev/null || echo "")
+  
+  if [ -z "$local_commit" ] || [ -z "$remote_commit" ]; then
+    warn "无法比较版本，可能分支不存在于远程仓库"
+    return 1
+  fi
+  
+  if [ "$local_commit" = "$remote_commit" ]; then
+    ok "当前已是最新版本"
+    info "本地提交: ${local_commit:0:8}"
+    return 0
+  fi
+  
+  # 检查本地是否有未提交的更改
+  if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+    warn "检测到本地有未提交的更改"
+    git status --short
+    echo ""
+    read -rp "是否暂存更改并继续更新? (Y/n): " stash_changes
+    if [[ "${stash_changes,,}" != "n" && "${stash_changes,,}" != "no" ]]; then
+      info "暂存本地更改..."
+      git stash push -m "Auto-stash before update $(date +%Y%m%d_%H%M%S)" || true
+    else
+      warn "已取消更新"
+      return 1
+    fi
+  fi
+  
+  # 显示更新信息
+  echo ""
+  info "发现新版本！"
+  echo "  本地提交: ${local_commit:0:8}"
+  echo "  远程提交: ${remote_commit:0:8}"
+  
+  # 显示更新的提交信息
+  local commit_count
+  commit_count=$(git rev-list --count HEAD.."origin/${current_branch}" 2>/dev/null || echo "?")
+  if [ "$commit_count" != "?" ] && [ "$commit_count" -gt 0 ]; then
+    echo ""
+    info "更新内容 (最近 ${commit_count} 个提交):"
+    git log --oneline HEAD.."origin/${current_branch}" -5 2>/dev/null || true
+  fi
+  
+  echo ""
+  read -rp "是否立即更新? (Y/n): " confirm_update
+  if [[ "${confirm_update,,}" == "n" || "${confirm_update,,}" == "no" ]]; then
+    warn "已取消更新"
+    return 0
+  fi
+  
+  step "3/4 拉取更新..."
+  if git pull --rebase --autostash origin "${current_branch}" 2>&1; then
+    ok "代码更新成功"
+  else
+    err "代码更新失败"
+    warn "提示: 可能存在冲突，请手动解决"
+    return 1
+  fi
+  
+  step "4/4 安装更新后的依赖..."
+  if npm install --silent 2>&1; then
+    ok "依赖更新完成"
+  else
+    warn "依赖更新可能有警告，请检查"
+  fi
+  
+  echo ""
+  ok "更新完成！"
+  echo ""
+  read -rp "是否重启服务以应用更新? (Y/n): " restart_service
+  if [[ "${restart_service,,}" != "n" && "${restart_service,,}" != "no" ]]; then
+    restart_local
+  else
+    info "提示: 请稍后手动重启服务（菜单选项 4）"
+  fi
+}
+
 install_deploy(){
   # 安装部署：安装依赖并启动服务
   echo ""
@@ -992,6 +1112,7 @@ show_help(){
   pause             暂停服务
   restart           重启服务
   status            查看服务状态
+  update            检查更新并自动拉取（如果有新版本）
   nginx             配置 Nginx 反向代理（自动申请证书）
 
 其他:
@@ -1013,10 +1134,11 @@ menu(){
     echo "3) 暂停服务"
     echo "4) 重启服务"
     echo "5) 服务状态"
-    echo "6) Nginx 反向代理"
+    echo "6) 检查更新"
+    echo "7) Nginx 反向代理"
     echo "0) 退出"
     echo ""
-    read -rp "请选择 [0-6]: " choice
+    read -rp "请选择 [0-7]: " choice
     
     case "$choice" in
       1) 
@@ -1040,6 +1162,10 @@ menu(){
         read -rp "按回车键继续..."
         ;;
       6) 
+        check_and_update
+        read -rp "按回车键继续..."
+        ;;
+      7) 
         nginx_setup_with_cert
         read -rp "按回车键继续..."
         ;;
@@ -1073,6 +1199,9 @@ case "$cmd" in
     ;;
   status)
     status_local
+    ;;
+  update)
+    check_and_update
     ;;
   nginx)
     nginx_setup_with_cert

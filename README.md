@@ -1,6 +1,6 @@
-# Node.js 多项目自动更新服务器（一键脚本 / Nginx / HTTPS / Docker）
+# Node.js 多项目自动更新服务器（一键脚本 / Nginx / HTTPS）
 
-基于 Node.js + Express 的多项目更新分发服务，内置图形化控制面板；支持多用户与项目隔离、API 上传/下载、Nginx 反代、Let’s Encrypt 一键证书与自动续签、Docker 一键部署。
+基于 Node.js + Express 的多项目更新分发服务，内置图形化控制面板；支持多用户与项目隔离、API 上传/下载、Nginx 反代、Let's Encrypt 一键证书与自动续签。
 
 仓库：`https://github.com/laozig/Update.git`
 
@@ -11,8 +11,7 @@
 - 控制面板：浏览器管理项目/版本/日志
 - 首启安全：无用户时自动生成随机管理员（写入 `server/first-run-admin.txt`）或用环境变量创建
 - Nginx 一键反代：交互式生成/启用站点；可选 HTTPS
-- Let’s Encrypt：一键申请证书并自动配置续签（cron）
--- Docker：已取消支持（当前版本不再提供 Docker 部署）
+- Let's Encrypt：一键申请证书并自动配置续签（cron）
 - 大文件优化：可配置上传上限（支持 `1g`/`500m` 等）
 
 ## 快速开始
@@ -23,17 +22,18 @@ bash <(curl -fsSL https://raw.githubusercontent.com/laozig/Update/main/scripts/b
 说明：默认只下载与准备，不自动启动。首启请手动进入目录并执行：
 ```bash
 cd <INSTALL_DIR>   # 默认 $HOME/Update 或你自定义的 INSTALL_DIR
-./manage.sh deploy
+./manage.sh install   # 或 ./manage.sh 显示菜单后选择"安装部署"
 ```
 可选环境变量：`INSTALL_DIR` `SERVER_NAME` `MAX_UPLOAD_SIZE`（若要自动启动可设 `AUTO_DEPLOY=yes`）
 ### Windows（推荐）
 ```bat
 git clone https://github.com/laozig/Update.git
 cd Update
-manage.bat deploy   :: 安装依赖并启动（等同 ./manage.sh deploy）
+manage.bat          :: 显示交互式菜单
+manage.bat install  :: 安装依赖并启动（等同 ./manage.sh install）
 manage.bat status   :: 查看状态
 ```
-- 常用：`manage.bat start|stop|restart|update|nginx:setup|cert:issue`
+- 常用：`manage.bat start|pause|restart|status|update|nginx`
 - 若提示未找到 Bash/WSL，请安装 Git Bash 或启用 WSL
 
 ### Linux/macOS
@@ -42,8 +42,7 @@ git clone https://github.com/laozig/Update.git
 cd Update
 ./manage.sh          # 无参数：显示交互式菜单
 ```
-- 常用：`./manage.sh start|stop|restart|update|nginx:setup|cert:issue`
- - 卸载：`./manage.sh uninstall`（删除本项目 Nginx 站点与 compose 文件；可选清理数据，`UNINSTALL_PURGE=yes` 跳过确认）
+- 常用：`./manage.sh start|pause|restart|status|update|nginx`
 
 ## 环境变量（推荐）
 - `BASE_URL`：对外地址（如 `https://updates.example.com`）；未设时按请求自动推断
@@ -52,26 +51,17 @@ cd Update
 - `MAX_UPLOAD_SIZE`：上传大小上限（如 `1gb`、`500mb`，默认 100MB）
 
 ## 一键脚本命令（节选）
-- 本地：`start` `stop` `restart` `status` `deploy` `update` `pause` `resume`
-- Docker：`docker:up` `docker:down` `docker:restart` `docker:logs [svc]`
-- Nginx：`nginx:setup`（交互式向导） `nginx:enable` `nginx:disable` `nginx:reload`
-- 证书：`cert:issue`（申请并自动续签） `cert:renew`
+- 服务管理：`install`（安装部署） `start`（启动服务） `pause`（暂停服务） `restart`（重启服务） `status`（服务状态） `update`（检查更新）
+- Nginx：`nginx`（交互式向导，自动申请证书） 
+- 帮助：`help` 查看详细命令说明
 
 ## Nginx 与证书（一键）
-- 反代向导：
 ```bash
-sudo ./manage.sh nginx:setup
-# 交互输入域名、最大上传大小，选择是否启用 HTTPS（可填已有证书路径）
-```
-- 申请证书并自动续签：
-```bash
-sudo ./manage.sh cert:issue
-# webroot 模式申请 Let’s Encrypt；自动写入 Nginx 配置并开启 443
+sudo ./manage.sh nginx
+# 交互式向导：输入域名、最大上传大小，自动申请 Let's Encrypt 证书并配置续签
+# 自动写入 Nginx 配置并开启 HTTPS (443)
 # 自动写入 cron：每天 3:00 续签并重载 Nginx
 ```
-
-## 关于 Docker
-本版本起不再提供 Docker 部署脚本与说明，请使用本地方式启动并按需配置 Nginx/证书。
 
 ## 首次启动与安全
 - 首次无用户：自动生成 `admin-xxxxxx` 与 16 位强密码，写入 `server/first-run-admin.txt`（仅一次性提示），`config.json` 中存储 bcrypt 哈希
@@ -147,7 +137,7 @@ MIT
 *   **易于部署**: 可以作为独立的 Node.js 应用运行。推荐使用 PM2 进行生产环境管理以实现进程守护和日志管理。
 *   **自定义配置**: 通过 `server/config.json` 配置端口与项目；对外地址优先使用环境变量 `BASE_URL`，未设置时由服务自动根据请求识别协议与主机名（已启用 `trust proxy`）。
 *   **文件名编码处理**: 优化了文件名处理逻辑，以正确支持包括中文在内的非ASCII字符文件名。
-*   **日志管理**: 控制面板服务会将操作日志记录到 `server.log`，并提供日志查看功能。主API服务日志输出到控制台。
+*   **日志管理**: 服务日志输出到 `api-server.log` 和 `ui-server.log`。控制面板提供实时日志查看功能。
 *   **JWT认证**: 使用JWT令牌进行用户认证，提高安全性。
 *   **密码安全存储**: 使用bcrypt对用户密码进行哈希存储，保障账户安全。
 
@@ -181,8 +171,8 @@ MIT
 
 ## 4. 系统架构与组件
 
-*   **核心API服务 (`server/index.js`)**: 处理客户端的版本检查 (`/api/version/:projectId`)、文件下载 (`/download/...`) 和（经认证的）版本上传 (`/api/upload/:projectId`) 请求。默认监听端口 `3000`。
-*   **Web控制面板服务 (`server/server-ui.js`)**: 提供基于Web的管理界面。负责项目管理、版本上传（通过调用核心API或内部逻辑）、API服务启停控制、日志查看等。默认监听端口 `8080`。
+*   **核心API服务 (`server/index.js`)**: 处理客户端的版本检查 (`/api/version/:projectId`)、文件下载 (`/download/...`) 和（经认证的）版本上传 (`/api/upload/:projectId`) 请求。默认监听端口 `33001`。
+*   **Web控制面板服务 (`server/server-ui.js`)**: 提供基于Web的管理界面。负责项目管理、版本上传（通过调用核心API或内部逻辑）、API服务启停控制、日志查看等。默认监听端口 `33081`。
 *   **配置文件 (`server/config.json`)**: 存储系统级配置（如服务端口、用户账户）和所有项目的详细信息（ID, 名称, API密钥, 图标等）。
 *   **项目数据存储 (`server/projects/`)**: 每个项目在此目录下拥有一个以其 `projectId` 命名的子目录，包含：
     *   `version.json`: 该项目的版本历史和元数据。
@@ -233,8 +223,8 @@ MIT
 
 ## 6. 系统架构与组件
 
-*   **核心API服务 (`server/index.js`)**: 处理客户端的版本检查 (`/api/version/:projectId`)、文件下载 (`/download/...`) 和（经认证的）版本上传 (`/api/upload/:projectId`) 请求。默认监听端口 `3000`。
-*   **Web控制面板服务 (`server/server-ui.js`)**: 提供基于Web的管理界面。负责项目管理、版本上传（通过调用核心API或内部逻辑）、API服务启停控制、日志查看等。默认监听端口 `8080`。
+*   **核心API服务 (`server/index.js`)**: 处理客户端的版本检查 (`/api/version/:projectId`)、文件下载 (`/download/...`) 和（经认证的）版本上传 (`/api/upload/:projectId`) 请求。默认监听端口 `33001`。
+*   **Web控制面板服务 (`server/server-ui.js`)**: 提供基于Web的管理界面。负责项目管理、版本上传（通过调用核心API或内部逻辑）、API服务启停控制、日志查看等。默认监听端口 `33081`。
 *   **配置文件 (`server/config.json`)**: 存储系统级配置（如服务端口、用户账户）和所有项目的详细信息（ID, 名称, API密钥, 图标等）。
 *   **项目数据存储 (`server/projects/`)**: 每个项目在此目录下拥有一个以其 `projectId` 命名的子目录，包含：
     *   `version.json`: 该项目的版本历史和元数据。
@@ -291,8 +281,8 @@ MIT
             // 可以添加更多项目...
           ],
           "server": {
-            "port": 3000,
-            "adminPort": 8080,
+            "port": 33001,
+            "adminPort": 33081,
             "adminUsername": "admin",
             "adminPassword": "ChangeThisStrongPassword!"
           }
@@ -355,7 +345,7 @@ MIT
 
 ### 7.5. 访问控制面板
 
-*   在浏览器中打开: `http://<YOUR_SERVER_IP_OR_DOMAIN>:<adminPort>` (例如 `http://yourserver.com:8080`)。
+*   在浏览器中打开: `http://<YOUR_SERVER_IP_OR_DOMAIN>:<adminPort>` (默认端口 33081，例如 `http://yourserver.com:33081`)。
 *   使用您在 `server/config.json` 中设置的 `adminUsername` 和 `adminPassword` 登录。
 
 ### 7.6. Nginx 反向代理配置
@@ -380,14 +370,14 @@ sudo yum install nginx
 
 ```nginx
 # 定义上游服务器 - 内部API服务 (server/index.js)
-upstream update_api {
-    server 127.0.0.1:3000;
+    upstream update_api {
+    server 127.0.0.1:33001;
     keepalive 64;  # 保持连接数
 }
 
 # 定义上游服务器 - 内部控制面板 (server/server-ui.js)
-upstream update_admin {
-    server 127.0.0.1:8080;
+    upstream update_admin {
+    server 127.0.0.1:33081;
     keepalive 64;  # 保持连接数
 }
 
@@ -592,12 +582,12 @@ sudo systemctl restart nginx
 
 #### 7.6.4. 配置说明
 
-* **隐藏内部端口**: Nginx代理将隐藏内部服务的端口(3000和8080)，外部用户只需通过标准HTTP(80)和HTTPS(443)端口访问。
+* **隐藏内部端口**: Nginx代理将隐藏内部服务的端口(默认33001和33081)，外部用户只需通过标准HTTP(80)和HTTPS(443)端口访问。
 
 * **路径分发**:
-  * `/` - 所有根路径请求会转发到控制面板服务(8080)
-  * `/api/` - API请求转发到API服务(3000)
-  * `/download/` - 下载请求转发到API服务(3000)
+  * `/` - 所有根路径请求会转发到控制面板服务(默认33081)
+  * `/api/` - API请求转发到API服务(默认33001)
+  * `/download/` - 下载请求转发到API服务(默认33001)
 
 * **安全增强**:
   * 启用HTTPS加密通信
@@ -624,7 +614,7 @@ sudo systemctl restart nginx
 
 *   `GET /api/version/:projectId`:
     *   描述: 获取指定项目的最新版本信息。
-    *   示例: `http://yourserver.com:3000/api/version/myFirstApp`
+    *   示例: `http://yourserver.com:33001/api/version/myFirstApp`
 *   `GET /download/:projectId/latest`:
     *   描述: 下载指定项目的最新版本文件。
 *   `GET /download/:projectId/:version`:
@@ -699,7 +689,7 @@ Update/
   {
     "version": "1.0.1",
     "releaseDate": "2024-07-01T10:00:00.000Z", // ISO 8601 日期格式
-    "downloadUrl": "http://yourserver.com:3000/download/myFirstApp/1.0.1",
+    "downloadUrl": "http://yourserver.com:33001/download/myFirstApp/1.0.1",
     "releaseNotes": "修复了bug A，优化了性能B。",
     "fileName": "MyApplication_1.0.1.exe",
     "originalFileName": "MyApplication" // 不含版本号和扩展名的原始基础名
@@ -721,9 +711,8 @@ Update/
 
 *   **API服务 (`server/index.js`)**: 主要将日志输出到标准控制台 (stdout/stderr)。如果使用PM2管理，PM2会自动收集这些日志。
 *   **控制面板服务 (`server/server-ui.js`)**: 
-    *   在控制台输出日志。
-    *   重要的操作日志（如项目创建、版本上传、服务启停）会记录到项目根目录下的 `server.log` 文件中。
-    *   控制面板界面提供日志查看功能，显示 `server.log` 的内容。
+    *   日志输出到 `ui-server.log`。
+    *   控制面板界面提供实时日志查看功能，可查看 API 和 UI 服务的日志。
 *   **服务状态**: 控制面板会显示核心API服务的运行状态（通过尝试连接API端口检测）。
 
 ## 13. 安全建议
@@ -777,7 +766,7 @@ Update/
 - **构建输出**: 如`dist/`, `build/`, `out/`等编译生成的目录
 
 #### 17.1.4. 日志和临时文件
-- **`logs/`和`*.log`文件**: 服务器运行日志，包括`server.log`
+- **`logs/`和`*.log`文件**: 服务器运行日志，包括`api-server.log`、`ui-server.log`、`*.pid`
 - **临时文件**: 如`.temp/`, `.tmp/`, `*.tmp`等临时生成的文件
 - **缓存文件**: 如`.cache/`等缓存目录
 

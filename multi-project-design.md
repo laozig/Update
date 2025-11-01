@@ -46,8 +46,8 @@ server/projects/
 - 版本数组按版本号数值逆序；兼容旧数据自动补足 `downloadUrl`、`originalFileName`。
 
 ## 7. 生产部署要点
-- 反向代理时设置 `app.set('trust proxy', 1)` 并传递 `X-Forwarded-Proto/Host`。
+- 反向代理时设置 `app.set('trust proxy', true)` 并传递 `X-Forwarded-Proto/Host`。
 - 推荐设置 `BASE_URL`（如 `https://updates.example.com`）。
-- 日志采用轮转策略；可配合 PM2 进行守护与日志管理。
+- 日志输出到 `api-server.log` 和 `ui-server.log`；可配合 PM2 进行守护与日志管理。
 
 以上设计保证多项目数据彼此隔离、接口清晰、部署方式灵活。
