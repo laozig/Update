@@ -129,8 +129,113 @@ stop_local(){
 restart_local(){ stop_local; sleep 1; start_local; }
 
 status_local(){
-  if pgrep -f "node ${API_ENTRY}" >/dev/null; then ok "API 运行中 (PID $(pgrep -f "node ${API_ENTRY}" | paste -sd, -))"; else warn "API 未运行"; fi
-  if pgrep -f "node ${UI_ENTRY}" >/dev/null; then ok "UI 运行中 (PID $(pgrep -f "node ${UI_ENTRY}" | paste -sd, -))"; else warn "UI 未运行"; fi
+  echo ""
+  echo -e "${CYAN}========================================${NC}"
+  echo -e "${CYAN}         服务运行状态${NC}"
+  echo -e "${CYAN}========================================${NC}"
+  echo ""
+  
+  # API 服务状态
+  if pgrep -f "node ${API_ENTRY}" >/dev/null; then
+    local api_pids=$(pgrep -f "node ${API_ENTRY}" | paste -sd, -)
+    ok "API 服务: 运行中 (PID: ${api_pids})"
+  else
+    warn "API 服务: 未运行"
+  fi
+  
+  # UI 服务状态
+  if pgrep -f "node ${UI_ENTRY}" >/dev/null; then
+    local ui_pids=$(pgrep -f "node ${UI_ENTRY}" | paste -sd, -)
+    ok "UI 服务: 运行中 (PID: ${ui_pids})"
+  else
+    warn "UI 服务: 未运行"
+  fi
+  
+  echo ""
+  info "访问地址:"
+  local hostIp
+  if command -v hostname >/dev/null 2>&1; then
+    hostIp=$(hostname -I 2>/dev/null | awk '{print $1}')
+  fi
+  [ -n "$hostIp" ] || hostIp="127.0.0.1"
+  local api_port=${PORT:-${LOCAL_API_PORT:-$DEFAULT_API_PORT}}
+  local ui_port=${ADMIN_PORT:-${LOCAL_UI_PORT:-$DEFAULT_UI_PORT}}
+  echo "  UI:  http://${hostIp}:${ui_port}"
+  echo "  API: http://${hostIp}:${api_port}"
+  echo ""
+  
+  # 实时日志查看选项
+  read -rp "是否查看实时日志? (y/N): " view_logs
+  if [[ "${view_logs,,}" == "y" || "${view_logs,,}" == "yes" ]]; then
+    view_logs_realtime
+  fi
+}
+
+view_logs_realtime(){
+  echo ""
+  echo -e "${CYAN}========================================${NC}"
+  echo -e "${CYAN}         实时日志查看${NC}"
+  echo -e "${CYAN}========================================${NC}"
+  echo ""
+  echo "1) API 服务日志"
+  echo "2) UI 服务日志"
+  echo "3) 所有日志（合并）"
+  echo "0) 返回"
+  echo ""
+  read -rp "请选择 [0-3]: " log_choice
+  
+  case "$log_choice" in
+    1)
+      if [ -f "$API_LOG" ]; then
+        info "显示 API 服务日志（按 Ctrl+C 退出）..."
+        tail -f "$API_LOG" 2>/dev/null || cat "$API_LOG"
+      else
+        warn "日志文件不存在: $API_LOG"
+      fi
+      ;;
+    2)
+      if [ -f "$UI_LOG" ]; then
+        info "显示 UI 服务日志（按 Ctrl+C 退出）..."
+        tail -f "$UI_LOG" 2>/dev/null || cat "$UI_LOG"
+      else
+        warn "日志文件不存在: $UI_LOG"
+      fi
+      ;;
+    3)
+      info "显示所有日志（按 Ctrl+C 退出）..."
+      if command -v multitail >/dev/null 2>&1; then
+        multitail -s 2 "$API_LOG" "$UI_LOG" 2>/dev/null || {
+          # 如果没有 multitail，使用简单的方式
+          tail -f "$API_LOG" "$UI_LOG" 2>/dev/null || {
+            [ -f "$API_LOG" ] && tail -f "$API_LOG" &
+            [ -f "$UI_LOG" ] && tail -f "$UI_LOG" &
+            wait
+          }
+        }
+      else
+        # 使用简单的 tail -f
+        if [ -f "$API_LOG" ] && [ -f "$UI_LOG" ]; then
+          tail -f "$API_LOG" "$UI_LOG" 2>/dev/null || {
+            info "提示: 安装 multitail 可获得更好的日志查看体验"
+            info "      sudo apt install multitail  # Ubuntu/Debian"
+            info "      sudo yum install multitail  # CentOS/RHEL"
+          }
+        elif [ -f "$API_LOG" ]; then
+          tail -f "$API_LOG"
+        elif [ -f "$UI_LOG" ]; then
+          tail -f "$UI_LOG"
+        else
+          warn "没有找到日志文件"
+        fi
+      fi
+      ;;
+    0)
+      return
+      ;;
+    *)
+      warn "无效选择"
+      ;;
+  esac
 }
 
 update_code(){
@@ -349,12 +454,13 @@ server {
         proxy_pass http://127.0.0.1:${apiPort}/api/;
         proxy_http_version 1.1;
         
-        # 保留原始请求头
+        # 保留原始请求头（重要：确保协议和主机正确传递）
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header X-Forwarded-Host \$server_name;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Forwarded-Port \$server_port;
         proxy_set_header Connection "";
         
         # 禁用缓冲（适用于流式传输）
@@ -370,12 +476,13 @@ server {
         proxy_pass http://127.0.0.1:${apiPort}/download/;
         proxy_http_version 1.1;
         
-        # 保留原始请求头
+        # 保留原始请求头（重要：确保协议和主机正确传递）
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header X-Forwarded-Host \$server_name;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Forwarded-Port \$server_port;
         
         # 下载优化
         proxy_buffering off;
@@ -393,16 +500,20 @@ server {
         proxy_pass http://127.0.0.1:${uiPort}/;
         proxy_http_version 1.1;
         
-        # 保留原始请求头
+        # 保留原始请求头（重要：确保协议和主机正确传递，解决登录重定向问题）
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header X-Forwarded-Host \$server_name;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Forwarded-Port \$server_port;
         
         # WebSocket 支持（如果将来需要）
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
+        
+        # Cookie 路径修复
+        proxy_cookie_path / /;
     }
 
     # 错误页面
@@ -450,12 +561,13 @@ server {
         proxy_pass http://127.0.0.1:${apiPort}/api/;
         proxy_http_version 1.1;
         
-        # 保留原始请求头
+        # 保留原始请求头（重要：确保协议和主机正确传递）
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header X-Forwarded-Host \$server_name;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Forwarded-Port \$server_port;
         proxy_set_header Connection "";
         
         # 禁用缓冲
@@ -471,12 +583,13 @@ server {
         proxy_pass http://127.0.0.1:${apiPort}/download/;
         proxy_http_version 1.1;
         
-        # 保留原始请求头
+        # 保留原始请求头（重要：确保协议和主机正确传递）
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header X-Forwarded-Host \$server_name;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Forwarded-Port \$server_port;
         
         # 下载优化
         proxy_buffering off;
@@ -494,16 +607,20 @@ server {
         proxy_pass http://127.0.0.1:${uiPort}/;
         proxy_http_version 1.1;
         
-        # 保留原始请求头
+        # 保留原始请求头（重要：确保协议和主机正确传递，解决登录重定向问题）
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header X-Forwarded-Host \$server_name;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Forwarded-Port \$server_port;
         
         # WebSocket 支持
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
+        
+        # Cookie 路径修复
+        proxy_cookie_path / /;
     }
 
     # 错误页面
@@ -870,9 +987,7 @@ menu(){
         read -rp "按回车键继续..."
         ;;
       5) 
-        echo ""
         status_local
-        echo ""
         read -rp "按回车键继续..."
         ;;
       6) 
