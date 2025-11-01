@@ -24,7 +24,8 @@ process.on('unhandledRejection', (reason, promise) => {
 const app = express();
 const uiPort = process.env.ADMIN_PORT ? Number(process.env.ADMIN_PORT) : 33081;
 // 在反向代理（如 Nginx）后时，正确识别协议和客户端 IP
-app.set('trust proxy', 1);
+// trust proxy 设置为 true 表示信任所有代理（适用于多层代理场景）
+app.set('trust proxy', true);
 
 // 统一构造对外可访问的基地址：优先 BASE_URL，其次按请求推断
 const getBaseUrl = (req) => {
@@ -225,7 +226,7 @@ checkApiServerStatus();
 // 中间件
 app.use(express.static(path.join(__dirname, 'public')));
 // 显式映射登录/注册页，防止某些中间件顺序导致静态文件未命中
-app.get(['/', '/login', '/login.html'], (req, res) => {
+app.get(['/login', '/login.html'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 app.get(['/register', '/register.html'], (req, res) => {
@@ -261,9 +262,10 @@ const authenticateJWT = (req, res, next) => {
       next();
     });
   } else {
-    // 如果没有认证头，重定向到登录页面
+    // 如果没有认证头，对于页面请求，允许通过（让前端处理认证）
+    // 对于 / 和 /index.html，直接返回页面，让前端 JavaScript 检查 token
     if (req.path === '/' || req.path === '/index.html') {
-      return res.redirect('/login.html');
+      return next(); // 允许访问，由前端检查认证
     }
     
     // API请求返回401
@@ -1063,13 +1065,10 @@ app.post('/api/upload/:projectId', upload.single('file'), (req, res) => {
   }
 });
 
-// 处理根路径，确保重定向到登录页面
-app.get('/', (req, res) => {
-  if (req.user) {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-  } else {
-    res.redirect('/login.html');
-  }
+// 处理根路径和 index.html，总是返回主页面（让前端检查认证）
+app.get(['/', '/index.html'], (req, res) => {
+  // 直接返回 index.html，由前端 JavaScript 检查 token 并决定是否重定向
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // 获取用户列表

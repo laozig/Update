@@ -9,7 +9,8 @@ const bcrypt = require('bcryptjs');
 const app = express();
 const port = process.env.PORT || 33001;
 // 在反向代理（如 Nginx）后时，正确识别协议和客户端 IP
-app.set('trust proxy', 1);
+// trust proxy 设置为 true 表示信任所有代理（适用于多层代理场景）
+app.set('trust proxy', true);
 
 // 统一构造对外可访问的基地址：优先 BASE_URL，其次按请求推断
 const getBaseUrl = (req) => {

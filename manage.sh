@@ -851,6 +851,12 @@ nginx_setup_with_cert(){
   echo ""
   warn "请确保防火墙已开放 80 和 443 端口"
   info "提示: 如果访问出现问题，请检查服务是否在运行（菜单选项 5）"
+  warn "重要: 配置完成后需要重启服务以使更改生效！"
+  echo ""
+  read -rp "是否现在重启服务? (Y/n): " restart_now
+  if [[ "${restart_now,,}" != "n" && "${restart_now,,}" != "no" ]]; then
+    restart_local
+  fi
 }
 
 # ---------------- 证书管理（Certbot） ----------------
