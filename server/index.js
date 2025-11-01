@@ -93,6 +93,83 @@ setInterval(checkAndRotateLogs, 60 * 60 * 1000);
 // 启动时检查一次日志大小
 checkAndRotateLogs();
 
+// 获取客户端IP地址（支持反向代理）
+const getClientIp = (req) => {
+  // 优先使用 Express 的 req.ip（需要 trust proxy 设置）
+  if (req.ip && req.ip !== '::ffff:127.0.0.1' && req.ip !== '::1') {
+    // 如果 IP 是 IPv6 映射的 IPv4，提取 IPv4 部分
+    const ip = req.ip.replace(/^::ffff:/, '');
+    if (ip !== '127.0.0.1') {
+      return ip;
+    }
+  }
+  
+  // 尝试从 X-Forwarded-For 头获取（反向代理场景）
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (forwardedFor) {
+    // X-Forwarded-For 可能包含多个 IP（第一个是客户端真实 IP）
+    const ips = forwardedFor.split(',').map(ip => ip.trim());
+    const realIp = ips[0];
+    if (realIp && realIp !== '127.0.0.1' && realIp !== '::1') {
+      return realIp;
+    }
+  }
+  
+  // 尝试从 X-Real-IP 头获取（Nginx 等代理服务器）
+  const realIp = req.headers['x-real-ip'];
+  if (realIp && realIp !== '127.0.0.1' && realIp !== '::1') {
+    return realIp;
+  }
+  
+  // 最后尝试从连接信息获取
+  const ip = req.connection?.remoteAddress || 
+             req.socket?.remoteAddress ||
+             (req.connection?.socket ? req.connection.socket.remoteAddress : null);
+  
+  if (ip) {
+    const cleanedIp = ip.replace(/^::ffff:/, '');
+    if (cleanedIp !== '127.0.0.1' && cleanedIp !== '::1') {
+      return cleanedIp;
+    }
+  }
+  
+  return 'unknown';
+};
+
+// 记录下载日志
+const logDownload = (projectId, version, fileName, clientIp, userAgent) => {
+  try {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hour = String(now.getHours()).padStart(2, '0');
+    const minute = String(now.getMinutes()).padStart(2, '0');
+    const second = String(now.getSeconds()).padStart(2, '0');
+    const timestamp = `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+    
+    const logEntry = `[${timestamp}] [下载] 项目: ${projectId}, 版本: ${version}, 文件: ${fileName}, IP: ${clientIp}, User-Agent: ${userAgent || 'unknown'}\n`;
+    
+    const logFilePath = path.join(__dirname, '..', 'api-server.log');
+    
+    // 检查日志文件大小，必要时轮转
+    if (fs.existsSync(logFilePath)) {
+      const stats = fs.statSync(logFilePath);
+      if (stats.size >= MAX_LOG_SIZE) {
+        rotateLogFiles('api-server.log');
+      }
+    }
+    
+    // 追加日志
+    fs.appendFileSync(logFilePath, logEntry, 'utf8');
+    
+    // 同时输出到控制台
+    console.log(`[下载记录] ${projectId} v${version} - IP: ${clientIp}`);
+  } catch (err) {
+    console.error('记录下载日志失败:', err);
+  }
+};
+
 // 加载配置文件
 const loadConfig = () => {
   try {
@@ -564,6 +641,13 @@ app.get('/download/:projectId/latest', (req, res) => {
   }
   
   if (fs.existsSync(filePath)) {
+    // 获取客户端信息
+    const clientIp = getClientIp(req);
+    const userAgent = req.get('user-agent');
+    
+    // 记录下载日志
+    logDownload(projectId, latestVersion.version, latestVersion.fileName, clientIp, userAgent);
+    
     res.download(filePath);
   } else {
     res.status(404).json({ error: `文件 ${latestVersion.fileName} 不存在` });
@@ -615,6 +699,13 @@ app.get('/download/:projectId/:version', (req, res) => {
   }
   
   if (fs.existsSync(filePath)) {
+    // 获取客户端信息
+    const clientIp = getClientIp(req);
+    const userAgent = req.get('user-agent');
+    
+    // 记录下载日志
+    logDownload(projectId, version, versionInfo.fileName, clientIp, userAgent);
+    
     console.log(`下载文件: ${filePath}`);
     res.download(filePath);
   } else {

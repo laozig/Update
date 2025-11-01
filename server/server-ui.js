@@ -804,10 +804,67 @@ app.get('/status', authenticateJWT, (req, res) => {
   });
 });
 
+// 读取API服务器的下载日志
+const readDownloadLogs = () => {
+  const downloadLogs = [];
+  try {
+    const apiLogPath = path.join(__dirname, '..', 'api-server.log');
+    
+    // 如果日志文件存在，读取并筛选下载记录
+    if (fs.existsSync(apiLogPath)) {
+      const logContent = fs.readFileSync(apiLogPath, 'utf8');
+      const lines = logContent.split('\n');
+      
+      // 筛选包含 [下载] 的日志行
+      lines.forEach(line => {
+        if (line.includes('[下载]')) {
+          downloadLogs.push(line.trim());
+        }
+      });
+    }
+    
+    // 同时读取轮转的日志文件
+    for (let i = 1; i <= MAX_LOG_FILES; i++) {
+      const rotatedLogPath = `${apiLogPath}.${i}`;
+      if (fs.existsSync(rotatedLogPath)) {
+        try {
+          const logContent = fs.readFileSync(rotatedLogPath, 'utf8');
+          const lines = logContent.split('\n');
+          lines.forEach(line => {
+            if (line.includes('[下载]')) {
+              downloadLogs.push(line.trim());
+            }
+          });
+        } catch (err) {
+          // 忽略读取轮转日志文件的错误
+        }
+      }
+    }
+  } catch (err) {
+    console.error('读取下载日志失败:', err);
+  }
+  
+  return downloadLogs;
+};
+
 app.get('/logs', authenticateJWT, (req, res) => {
   // 只允许管理员查看日志
   if (req.user && req.user.role === 'admin') {
-    res.json({ logs: serverLogs });
+    // 合并控制面板日志和下载日志
+    const allLogs = [...serverLogs];
+    
+    // 读取API服务器的下载日志
+    const downloadLogs = readDownloadLogs();
+    
+    // 合并下载日志（按时间排序，最新的在前）
+    downloadLogs.reverse().forEach(log => {
+      allLogs.push(log);
+    });
+    
+    // 按时间戳排序（如果需要的话，可以进一步优化）
+    // 这里保持简单的顺序：先控制面板日志，后下载日志
+    
+    res.json({ logs: allLogs });
   } else {
     res.status(403).json({ error: '没有权限查看服务器日志，需要管理员权限' });
   }
