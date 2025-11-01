@@ -812,15 +812,23 @@ const readDownloadLogs = () => {
     
     // 如果日志文件存在，读取并筛选下载记录
     if (fs.existsSync(apiLogPath)) {
-      const logContent = fs.readFileSync(apiLogPath, 'utf8');
-      const lines = logContent.split('\n');
-      
-      // 筛选包含 [下载] 的日志行
-      lines.forEach(line => {
-        if (line.includes('[下载]')) {
-          downloadLogs.push(line.trim());
-        }
-      });
+      try {
+        const logContent = fs.readFileSync(apiLogPath, 'utf8');
+        const lines = logContent.split('\n');
+        
+        // 筛选包含 [下载] 的日志行
+        lines.forEach(line => {
+          const trimmedLine = line.trim();
+          if (trimmedLine && trimmedLine.includes('[下载]')) {
+            downloadLogs.push(trimmedLine);
+          }
+        });
+      } catch (err) {
+        console.error('读取 api-server.log 失败:', err.message);
+      }
+    } else {
+      // 日志文件不存在是正常的（如果还没有下载记录）
+      // console.log('api-server.log 文件不存在，可能还没有下载记录');
     }
     
     // 同时读取轮转的日志文件
@@ -831,12 +839,14 @@ const readDownloadLogs = () => {
           const logContent = fs.readFileSync(rotatedLogPath, 'utf8');
           const lines = logContent.split('\n');
           lines.forEach(line => {
-            if (line.includes('[下载]')) {
-              downloadLogs.push(line.trim());
+            const trimmedLine = line.trim();
+            if (trimmedLine && trimmedLine.includes('[下载]')) {
+              downloadLogs.push(trimmedLine);
             }
           });
         } catch (err) {
           // 忽略读取轮转日志文件的错误
+          console.error(`读取 ${rotatedLogPath} 失败:`, err.message);
         }
       }
     }
@@ -909,6 +919,27 @@ app.post('/api/logs/clean', authenticateJWT, (req, res) => {
   }
 });
 
+// 检查端口是否被占用
+const checkPort = (port, callback) => {
+  const net = require('net');
+  const server = net.createServer();
+  
+  server.listen(port, () => {
+    server.once('close', () => {
+      callback(false); // 端口可用
+    });
+    server.close();
+  });
+  
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      callback(true); // 端口被占用
+    } else {
+      callback(false); // 其他错误，假设端口可用
+    }
+  });
+};
+
 // 启动API服务器
 app.post('/start', authenticateJWT, (req, res) => {
   try {
@@ -922,37 +953,96 @@ app.post('/start', authenticateJWT, (req, res) => {
       return res.json({ running: true, message: '服务器已经在运行中' });
     }
     
-    // 启动API服务器
-    const serverPath = path.join(__dirname, 'index.js');
-    serverProcess = spawn('node', [serverPath], {
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe']
+    // 检查API服务器端口（33001）
+    const apiPort = process.env.PORT ? Number(process.env.PORT) : 33001;
+    checkPort(apiPort, (isOccupied) => {
+      if (isOccupied) {
+        addLog(`[错误] 端口 ${apiPort} 已被占用，无法启动API服务器`);
+        return res.status(500).json({ 
+          error: '启动服务器失败', 
+          details: `端口 ${apiPort} 已被占用，请先停止占用该端口的进程` 
+        });
+      }
+      
+      // 启动API服务器
+      const serverPath = path.join(__dirname, 'index.js');
+      addLog(`管理员 ${req.user.username} 启动了API服务器`);
+      
+      serverProcess = spawn('node', [serverPath], {
+        cwd: __dirname,
+        detached: false,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      
+      let errorOutput = '';
+      let hasError = false;
+      
+      // 处理服务器输出
+      serverProcess.stdout.on('data', (data) => {
+        const message = data.toString().trim();
+        if (message) {
+          addLog(`[API] ${message}`);
+        }
+      });
+      
+      // 处理服务器错误
+      serverProcess.stderr.on('data', (data) => {
+        const message = data.toString().trim();
+        errorOutput += message + '\n';
+        if (message) {
+          addLog(`[API错误] ${message}`);
+          // 检查是否是端口占用错误
+          if (message.includes('EADDRINUSE') || message.includes('address already in use')) {
+            hasError = true;
+          }
+        }
+      });
+      
+      // 处理服务器退出
+      serverProcess.on('close', (code) => {
+        if (code !== 0 && code !== null) {
+          addLog(`API服务器已停止，退出代码: ${code}`);
+          if (errorOutput) {
+            console.error('API服务器错误输出:', errorOutput);
+          }
+        }
+        serverRunning = false;
+        serverProcess = null;
+      });
+      
+      // 等待一小段时间，检查进程是否还在运行
+      setTimeout(() => {
+        if (serverProcess && !serverProcess.killed) {
+          try {
+            process.kill(serverProcess.pid, 0); // 检查进程是否存在
+            serverRunning = true;
+            if (!res.headersSent) {
+              res.json({ running: true, message: '服务器已启动' });
+            }
+          } catch (err) {
+            // 进程不存在，启动失败
+            serverRunning = false;
+            if (!res.headersSent) {
+              res.status(500).json({ 
+                error: '启动服务器失败', 
+                details: '服务器进程启动后立即退出，请检查日志' 
+              });
+            }
+          }
+        } else {
+          serverRunning = false;
+          if (!res.headersSent) {
+            res.status(500).json({ 
+              error: '启动服务器失败', 
+              details: hasError ? errorOutput : '服务器启动失败，请检查日志' 
+            });
+          }
+        }
+      }, 1000); // 等待1秒检查进程状态
     });
-    
-    // 处理服务器输出
-    serverProcess.stdout.on('data', (data) => {
-      const message = data.toString().trim();
-      addLog(`[API] ${message}`);
-    });
-    
-    // 处理服务器错误
-    serverProcess.stderr.on('data', (data) => {
-      const message = data.toString().trim();
-      addLog(`[API错误] ${message}`);
-    });
-    
-    // 处理服务器退出
-    serverProcess.on('close', (code) => {
-      addLog(`API服务器已停止，退出代码: ${code}`);
-      serverRunning = false;
-    });
-    
-    serverRunning = true;
-    addLog(`管理员 ${req.user.username} 启动了API服务器`);
-    
-    res.json({ running: true, message: '服务器已启动' });
   } catch (error) {
     console.error('启动服务器错误:', error);
+    addLog(`[错误] 启动API服务器失败: ${error.message}`);
     res.status(500).json({ error: '启动服务器失败', details: error.message });
   }
 });
@@ -1739,7 +1829,8 @@ function sendNotification(title, message, level = 'info', role = null, username 
 }
 
 // 启动服务器
-server.listen(process.env.ADMIN_PORT ? Number(process.env.ADMIN_PORT) : (config.server.adminPort || uiPort), () => {
+const listenPort = process.env.ADMIN_PORT ? Number(process.env.ADMIN_PORT) : (config.server.adminPort || uiPort);
+server.listen(listenPort, () => {
   const os = require('os');
   const interfaces = os.networkInterfaces();
   let lanIp = null;
@@ -1752,12 +1843,27 @@ server.listen(process.env.ADMIN_PORT ? Number(process.env.ADMIN_PORT) : (config.
     }
     if (lanIp) break;
   }
-  const listenPort = process.env.ADMIN_PORT ? Number(process.env.ADMIN_PORT) : (config.server.adminPort || uiPort);
   console.log(`控制面板运行在 http://localhost:${listenPort}`);
   if (lanIp) {
     console.log(`局域网访问地址: http://${lanIp}:${listenPort}`);
   }
   serverLogs.push(`控制面板已启动，端口: ${listenPort}`);
+});
+
+// 处理端口占用错误
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[错误] 端口 ${listenPort} 已被占用，请先停止占用该端口的进程`);
+    console.error(`[提示] Windows下可使用以下命令查找并停止进程:`);
+    console.error(`       netstat -ano | findstr :${listenPort}`);
+    console.error(`       taskkill /F /PID <进程ID>`);
+    addLog(`[错误] 端口 ${listenPort} 已被占用`);
+    process.exit(1);
+  } else {
+    console.error(`[错误] 控制面板启动失败:`, err.message);
+    addLog(`[错误] 控制面板启动失败: ${err.message}`);
+    process.exit(1);
+  }
 });
 
 // 全局错误处理中间件

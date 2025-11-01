@@ -137,7 +137,7 @@ const getClientIp = (req) => {
 };
 
 // 记录下载日志
-const logDownload = (projectId, version, fileName, clientIp, userAgent) => {
+const logDownload = (projectId, version, fileName, clientIp, userAgent, status = '成功') => {
   try {
     const now = new Date();
     const year = now.getFullYear();
@@ -148,7 +148,8 @@ const logDownload = (projectId, version, fileName, clientIp, userAgent) => {
     const second = String(now.getSeconds()).padStart(2, '0');
     const timestamp = `${year}-${month}-${day} ${hour}:${minute}:${second}`;
     
-    const logEntry = `[${timestamp}] [下载] 项目: ${projectId}, 版本: ${version}, 文件: ${fileName}, IP: ${clientIp}, User-Agent: ${userAgent || 'unknown'}\n`;
+    const statusText = status === '成功' ? '' : `, 状态: ${status}`;
+    const logEntry = `[${timestamp}] [下载] 项目: ${projectId}, 版本: ${version}, 文件: ${fileName}, IP: ${clientIp}, User-Agent: ${userAgent || 'unknown'}${statusText}\n`;
     
     const logFilePath = path.join(__dirname, '..', 'api-server.log');
     
@@ -645,11 +646,23 @@ app.get('/download/:projectId/latest', (req, res) => {
     const clientIp = getClientIp(req);
     const userAgent = req.get('user-agent');
     
-    // 记录下载日志
+    // 记录下载日志（在下载开始前记录）
     logDownload(projectId, latestVersion.version, latestVersion.fileName, clientIp, userAgent);
     
-    res.download(filePath);
+    // 使用回调处理下载完成/错误
+    res.download(filePath, (err) => {
+      if (err) {
+        // 下载出错时也记录错误日志
+        console.error(`下载失败: ${projectId} v${latestVersion.version} - ${err.message}`);
+        if (!res.headersSent) {
+          res.status(500).json({ error: '文件下载失败' });
+        }
+      }
+    });
   } else {
+    // 文件不存在时也记录日志
+    const clientIp = getClientIp(req);
+    logDownload(projectId, latestVersion.version || 'unknown', latestVersion.fileName || 'unknown', clientIp, req.get('user-agent'), '文件不存在');
     res.status(404).json({ error: `文件 ${latestVersion.fileName} 不存在` });
   }
 });
@@ -703,12 +716,24 @@ app.get('/download/:projectId/:version', (req, res) => {
     const clientIp = getClientIp(req);
     const userAgent = req.get('user-agent');
     
-    // 记录下载日志
+    // 记录下载日志（在下载开始前记录）
     logDownload(projectId, version, versionInfo.fileName, clientIp, userAgent);
     
     console.log(`下载文件: ${filePath}`);
-    res.download(filePath);
+    // 使用回调处理下载完成/错误
+    res.download(filePath, (err) => {
+      if (err) {
+        // 下载出错时也记录错误日志
+        console.error(`下载失败: ${projectId} v${version} - ${err.message}`);
+        if (!res.headersSent) {
+          res.status(500).json({ error: '文件下载失败' });
+        }
+      }
+    });
   } else {
+    // 文件不存在时也记录日志
+    const clientIp = getClientIp(req);
+    logDownload(projectId, version, versionInfo.fileName || 'unknown', clientIp, req.get('user-agent'), '文件不存在');
     res.status(404).json({ error: `文件 ${versionInfo.fileName} 不存在` });
   }
 });
@@ -786,6 +811,35 @@ app.use((err, req, res, next) => {
 });
 
 // 启动服务器
-app.listen(port, () => {
+const server = app.listen(port, () => {
+  const os = require('os');
+  const interfaces = os.networkInterfaces();
+  let lanIp = null;
+  for (const name of Object.keys(interfaces)) {
+    for (const net of interfaces[name]) {
+      if (net.family === 'IPv4' && !net.internal) {
+        lanIp = net.address;
+        break;
+      }
+    }
+    if (lanIp) break;
+  }
   console.log(`更新服务器运行在 http://localhost:${port}`);
+  if (lanIp) {
+    console.log(`局域网访问地址: http://${lanIp}:${port}`);
+  }
+});
+
+// 处理端口占用错误
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[错误] 端口 ${port} 已被占用，请先停止占用该端口的进程`);
+    console.error(`[提示] Windows下可使用以下命令查找并停止进程:`);
+    console.error(`       netstat -ano | findstr :${port}`);
+    console.error(`       taskkill /F /PID <进程ID>`);
+    process.exit(1);
+  } else {
+    console.error(`[错误] 服务器启动失败:`, err.message);
+    process.exit(1);
+  }
 }); 
