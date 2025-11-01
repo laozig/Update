@@ -40,6 +40,10 @@ let config = {
 const MAX_LOG_SIZE = 10 * 1024 * 1024; // 日志文件最大大小（10MB）
 const MAX_LOG_FILES = 5; // 最多保留的日志文件数量
 
+// 下载日志去重缓存（防止短时间内重复记录）
+const downloadLogCache = new Map();
+const DOWNLOAD_LOG_CACHE_TTL = 5000; // 5秒内的重复请求不重复记录
+
 // 日志文件轮转
 const rotateLogFiles = (logFileName) => {
   try {
@@ -147,6 +151,32 @@ const logDownload = (projectId, version, fileName, clientIp, userAgent, status =
     const minute = String(now.getMinutes()).padStart(2, '0');
     const second = String(now.getSeconds()).padStart(2, '0');
     const timestamp = `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+    
+    // 生成去重键：项目ID + 版本 + IP + 文件名 + 状态（同一秒内的相同下载只记录一次）
+    const cacheKey = `${projectId}|${version}|${clientIp}|${fileName}|${status}`;
+    const nowTime = now.getTime();
+    
+    // 检查是否在短时间内已经记录过相同的下载
+    if (downloadLogCache.has(cacheKey)) {
+      const lastLogTime = downloadLogCache.get(cacheKey);
+      if (nowTime - lastLogTime < DOWNLOAD_LOG_CACHE_TTL) {
+        // 在缓存有效期内，跳过重复记录
+        return;
+      }
+    }
+    
+    // 更新缓存
+    downloadLogCache.set(cacheKey, nowTime);
+    
+    // 清理过期的缓存项（防止内存泄漏）
+    if (downloadLogCache.size > 1000) {
+      const cutoffTime = nowTime - DOWNLOAD_LOG_CACHE_TTL;
+      for (const [key, time] of downloadLogCache.entries()) {
+        if (time < cutoffTime) {
+          downloadLogCache.delete(key);
+        }
+      }
+    }
     
     const statusText = status === '成功' ? '' : `, 状态: ${status}`;
     const logEntry = `[${timestamp}] [下载] 项目: ${projectId}, 版本: ${version}, 文件: ${fileName}, IP: ${clientIp}, User-Agent: ${userAgent || 'unknown'}${statusText}\n`;
@@ -667,8 +697,9 @@ app.get('/download/:projectId/latest', (req, res) => {
   }
 });
 
-// 下载指定版本
-app.get('/download/:projectId/:version', (req, res) => {
+// 下载指定版本（使用正则表达式匹配包含多个点的版本号，如 1.0.0.2）
+// 注意：Express 路由参数默认不匹配点号，需要使用正则表达式
+app.get('/download/:projectId/:version([^/]+)', (req, res) => {
   const { projectId, version } = req.params;
   
   // 检查项目目录是否存在

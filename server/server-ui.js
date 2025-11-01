@@ -804,6 +804,146 @@ app.get('/status', authenticateJWT, (req, res) => {
   });
 });
 
+// 代理下载请求到API服务器
+// 通用的代理函数
+const proxyDownload = (req, res, path) => {
+  // 从配置中读取API服务器端口（默认33001）
+  const apiPort = config.server.port || 33001;
+  
+  // 获取客户端真实IP（用于传递给API服务器）
+  const getClientRealIp = (req) => {
+    // 优先使用 X-Forwarded-For（如果有多个代理）
+    const forwardedFor = req.get('x-forwarded-for');
+    if (forwardedFor) {
+      const ips = forwardedFor.split(',').map(ip => ip.trim());
+      const realIp = ips[0]; // 第一个是真实客户端IP
+      if (realIp && realIp !== '127.0.0.1' && realIp !== '::1') {
+        return realIp;
+      }
+    }
+    // 使用 X-Real-IP
+    const realIp = req.get('x-real-ip');
+    if (realIp && realIp !== '127.0.0.1' && realIp !== '::1') {
+      return realIp;
+    }
+    // 使用 Express 的 req.ip（需要 trust proxy 设置）
+    if (req.ip) {
+      const ip = req.ip.replace(/^::ffff:/, '');
+      if (ip && ip !== '127.0.0.1' && ip !== '::1') {
+        return ip;
+      }
+    }
+    // 使用连接IP
+    const connIp = req.connection?.remoteAddress || req.socket?.remoteAddress;
+    if (connIp) {
+      const ip = connIp.replace(/^::ffff:/, '');
+      if (ip && ip !== '127.0.0.1' && ip !== '::1') {
+        return ip;
+      }
+    }
+    // 如果都获取不到，返回 'unknown'
+    return 'unknown';
+  };
+  
+  const clientRealIp = getClientRealIp(req);
+  
+  // 创建代理请求选项
+  const options = {
+    hostname: '127.0.0.1',
+    port: apiPort,
+    path: path,
+    method: 'GET',
+    headers: {
+      'User-Agent': req.get('user-agent') || '',
+      'Accept': req.get('accept') || '*/*',
+      'Range': req.get('range') || '', // 支持断点续传
+      // 传递客户端真实IP头，让API服务器能够获取真实IP
+      // 只有当IP不是unknown时才传递（避免传递无效值）
+      ...(clientRealIp !== 'unknown' && {
+        'X-Forwarded-For': clientRealIp,
+        'X-Real-IP': clientRealIp,
+      }),
+    }
+  };
+  
+  // 移除空的请求头
+  Object.keys(options.headers).forEach(key => {
+    if (!options.headers[key]) {
+      delete options.headers[key];
+    }
+  });
+  
+  // 代理请求到API服务器
+  const proxyReq = http.request(options, (proxyRes) => {
+    // 复制响应状态码和响应头
+    const headers = { ...proxyRes.headers };
+    // 移除可能引起问题的头部
+    delete headers['connection'];
+    delete headers['transfer-encoding'];
+    
+    res.writeHead(proxyRes.statusCode, headers);
+    
+    // 转发响应数据流
+    proxyRes.pipe(res);
+    
+    // 监听响应完成事件
+    proxyRes.on('end', () => {
+      // 响应正常完成，不需要记录错误
+    });
+    
+    proxyRes.on('error', (err) => {
+      // 只有当响应未完成时才记录错误
+      if (!res.headersSent) {
+        console.error('代理响应流错误:', err);
+        res.status(500).json({ error: '下载过程中出错' });
+      } else if (!res.finished) {
+        // 响应已开始但未完成，这可能是正常的中断
+        console.warn('代理响应流中断（可能用户取消下载）:', err.message);
+      }
+    });
+  });
+  
+  proxyReq.on('error', (err) => {
+    // 只有特定错误才记录，忽略连接关闭等正常情况
+    if (err.code !== 'ECONNRESET' && err.code !== 'EPIPE' && !res.finished) {
+      console.error('代理下载请求失败:', err);
+      if (!res.headersSent) {
+        res.status(502).json({ error: '无法连接到API服务器，请确保API服务器正在运行' });
+      }
+    }
+  });
+  
+  // 监听目标响应关闭（下载完成）
+  res.on('close', () => {
+    // 如果响应未完成但连接关闭，可能用户取消了下载
+    if (!res.finished && !res.headersSent) {
+      // 这通常是正常的（用户取消），不需要记录错误
+      proxyReq.destroy();
+    }
+  });
+  
+  // 如果客户端断开连接，取消代理请求
+  req.on('aborted', () => {
+    if (!res.finished) {
+      proxyReq.destroy();
+    }
+  });
+  
+  // 发送请求
+  proxyReq.end();
+};
+
+// 下载最新版本
+app.get('/download/:projectId/latest', (req, res) => {
+  proxyDownload(req, res, `/download/${req.params.projectId}/latest`);
+});
+
+// 下载指定版本（使用正则表达式匹配包含多个点的版本号，如 1.0.0.2）
+app.get('/download/:projectId/:version([^/]+)', (req, res) => {
+  const { projectId, version } = req.params;
+  proxyDownload(req, res, `/download/${projectId}/${encodeURIComponent(version)}`);
+});
+
 // 读取API服务器的下载日志
 const readDownloadLogs = () => {
   const downloadLogs = [];
@@ -953,8 +1093,8 @@ app.post('/start', authenticateJWT, (req, res) => {
       return res.json({ running: true, message: '服务器已经在运行中' });
     }
     
-    // 检查API服务器端口（33001）
-    const apiPort = process.env.PORT ? Number(process.env.PORT) : 33001;
+    // 检查API服务器端口（从配置中读取，默认33001）
+    const apiPort = config.server.port || 33001;
     checkPort(apiPort, (isOccupied) => {
       if (isOccupied) {
         addLog(`[错误] 端口 ${apiPort} 已被占用，无法启动API服务器`);
@@ -966,12 +1106,16 @@ app.post('/start', authenticateJWT, (req, res) => {
       
       // 启动API服务器
       const serverPath = path.join(__dirname, 'index.js');
-      addLog(`管理员 ${req.user.username} 启动了API服务器`);
+      addLog(`管理员 ${req.user.username} 启动了API服务器 (端口: ${apiPort})`);
+      
+      // 设置环境变量，确保API服务器使用正确的端口
+      const env = { ...process.env, PORT: apiPort.toString() };
       
       serverProcess = spawn('node', [serverPath], {
         cwd: __dirname,
         detached: false,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: env
       });
       
       let errorOutput = '';
@@ -1010,15 +1154,57 @@ app.post('/start', authenticateJWT, (req, res) => {
         serverProcess = null;
       });
       
-      // 等待一小段时间，检查进程是否还在运行
+      // 等待一小段时间，检查进程是否还在运行，并且端口是否可以连接
       setTimeout(() => {
         if (serverProcess && !serverProcess.killed) {
           try {
             process.kill(serverProcess.pid, 0); // 检查进程是否存在
-            serverRunning = true;
-            if (!res.headersSent) {
-              res.json({ running: true, message: '服务器已启动' });
-            }
+            
+            // 进一步检查端口是否可以连接
+            const testClient = new net.Socket();
+            let portConnected = false;
+            testClient.setTimeout(1000);
+            
+            testClient.on('connect', () => {
+              portConnected = true;
+              testClient.destroy();
+              serverRunning = true;
+              if (!res.headersSent) {
+                res.json({ running: true, message: '服务器已启动' });
+              }
+            });
+            
+            testClient.on('timeout', () => {
+              testClient.destroy();
+              if (!portConnected) {
+                // 进程存在但端口未就绪，可能还在启动中
+                serverRunning = false;
+                if (!res.headersSent) {
+                  res.status(500).json({ 
+                    error: '启动服务器失败', 
+                    details: '服务器进程已启动，但端口未就绪，请检查日志' 
+                  });
+                }
+              }
+            });
+            
+            testClient.on('error', (err) => {
+              testClient.destroy();
+              // 端口连接失败，可能还在启动中或启动失败
+              if (!portConnected) {
+                serverRunning = false;
+                if (!res.headersSent) {
+                  res.status(500).json({ 
+                    error: '启动服务器失败', 
+                    details: hasError ? errorOutput : '服务器进程存在，但无法连接到端口，请检查日志' 
+                  });
+                }
+              }
+            });
+            
+            // 尝试连接端口
+            testClient.connect(apiPort, '127.0.0.1');
+            
           } catch (err) {
             // 进程不存在，启动失败
             serverRunning = false;
@@ -1038,7 +1224,7 @@ app.post('/start', authenticateJWT, (req, res) => {
             });
           }
         }
-      }, 1000); // 等待1秒检查进程状态
+      }, 1500); // 等待1.5秒，给服务器更多启动时间
     });
   } catch (error) {
     console.error('启动服务器错误:', error);
@@ -1872,21 +2058,3 @@ app.use((err, req, res, next) => {
   addLog(`[错误] ${err.message}`);
   res.status(500).json({ error: '服务器内部错误' });
 });
-
-function showAlert(type, message) {
-  const successAlert = document.getElementById('alertSuccess');
-  const errorAlert = document.getElementById('alertError');
-  if (type === 'success') {
-    successAlert.innerHTML = message.replace(/\n/g, '<br>');
-    successAlert.style.display = 'block';
-    errorAlert.style.display = 'none';
-  } else {
-    errorAlert.innerHTML = message.replace(/\n/g, '<br>');
-    errorAlert.style.display = 'block';
-    successAlert.style.display = 'none';
-  }
-  setTimeout(() => {
-    successAlert.style.display = 'none';
-    errorAlert.style.display = 'none';
-  }, 5000);
-}
