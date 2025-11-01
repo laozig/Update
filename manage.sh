@@ -449,9 +449,28 @@ server {
     proxy_buffers 8 4k;
     proxy_busy_buffers_size 8k;
 
-    # API 接口代理
+    # 客户端更新检查API（公开API，在API服务器）
+    location ~ ^/api/version/ {
+        proxy_pass http://127.0.0.1:${apiPort};
+        proxy_http_version 1.1;
+        
+        # 保留原始请求头
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Forwarded-Port \$server_port;
+        
+        # 禁用缓冲
+        proxy_buffering off;
+    }
+
+    # API 接口代理（控制面板API都在UI服务器）
+    # 注意：大多数控制面板API在UI服务器(33081)
     location /api/ {
-        proxy_pass http://127.0.0.1:${apiPort}/api/;
+        # 代理到UI服务器（控制面板API）
+        proxy_pass http://127.0.0.1:${uiPort}/api/;
         proxy_http_version 1.1;
         
         # 保留原始请求头（重要：确保协议和主机正确传递）
@@ -556,9 +575,28 @@ server {
         allow all;
     }
 
-    # API 接口代理
+    # 客户端更新检查API（公开API，在API服务器）
+    location ~ ^/api/version/ {
+        proxy_pass http://127.0.0.1:${apiPort};
+        proxy_http_version 1.1;
+        
+        # 保留原始请求头
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Forwarded-Port \$server_port;
+        
+        # 禁用缓冲
+        proxy_buffering off;
+    }
+
+    # API 接口代理（控制面板API都在UI服务器）
+    # 注意：大多数控制面板API在UI服务器(33081)
     location /api/ {
-        proxy_pass http://127.0.0.1:${apiPort}/api/;
+        # 代理到UI服务器（控制面板API）
+        proxy_pass http://127.0.0.1:${uiPort}/api/;
         proxy_http_version 1.1;
         
         # 保留原始请求头（重要：确保协议和主机正确传递）
@@ -851,7 +889,12 @@ nginx_setup_with_cert(){
   echo ""
   warn "请确保防火墙已开放 80 和 443 端口"
   info "提示: 如果访问出现问题，请检查服务是否在运行（菜单选项 5）"
-  warn "重要: 配置完成后需要重启服务以使更改生效！"
+  warn "重要: 配置完成后需要重载 Nginx 并重启服务以使更改生效！"
+  echo ""
+  read -rp "是否现在重载 Nginx 配置? (Y/n): " reload_nginx
+  if [[ "${reload_nginx,,}" != "n" && "${reload_nginx,,}" != "no" ]]; then
+    nginx_reload
+  fi
   echo ""
   read -rp "是否现在重启服务? (Y/n): " restart_now
   if [[ "${restart_now,,}" != "n" && "${restart_now,,}" != "no" ]]; then
