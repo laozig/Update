@@ -411,7 +411,7 @@ fi
 
 ```
 Update/
-├── server/
+├── server/ 
 │   ├── index.js          # API 服务器
 │   ├── server-ui.js      # 控制面板服务器
 │   ├── config.json       # 运行期生成/维护
