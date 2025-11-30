@@ -120,34 +120,87 @@ setInterval(checkAndRotateLogs, 60 * 60 * 1000);
 // 启动时检查一次日志大小
 checkAndRotateLogs();
 
-// 验证并提取 IPv4 地址
-const extractIPv4 = (ip) => {
+// 清理和验证IP地址（支持IPv4和IPv6）
+const cleanIp = (ip) => {
   if (!ip) return null;
   
+  // 去除前后空格
+  ip = String(ip).trim();
+  
+  // 如果包含端口号，先提取IP部分（格式：ip:port 或 [ip]:port）
+  let ipOnly = ip;
+  if (ip.includes(':')) {
+    // 处理 IPv6 格式 [::ffff:192.168.1.1]:8080
+    const bracketMatch = ip.match(/^\[(.+)\]:(\d+)$/);
+    if (bracketMatch) {
+      ipOnly = bracketMatch[1];
+    } else {
+      // 处理 IPv4 格式 192.168.1.1:8080
+      const parts = ip.split(':');
+      // 如果最后一部分是数字（端口号），且前面部分看起来像IPv4
+      if (parts.length === 2 && /^\d+$/.test(parts[parts.length - 1])) {
+        ipOnly = parts[0];
+      }
+    }
+  }
+  
   // 如果是 IPv6 映射的 IPv4（格式：::ffff:xxx.xxx.xxx.xxx），提取 IPv4 部分
-  if (ip.startsWith('::ffff:')) {
-    const ipv4 = ip.replace(/^::ffff:/, '');
+  if (ipOnly.toLowerCase().startsWith('::ffff:')) {
+    const ipv4 = ipOnly.replace(/^::ffff:/i, '');
+    // 再次检查端口号（如果IPv6映射格式后还有端口）
+    const ipv4Only = ipv4.split(':')[0];
     // 验证是否是有效的 IPv4 格式
-    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(ipv4)) {
+    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(ipv4Only)) {
+      // 验证每个数字段是否在有效范围内（0-255）
+      const parts = ipv4Only.split('.');
+      const isValid = parts.every(part => {
+        const num = parseInt(part, 10);
+        return num >= 0 && num <= 255;
+      });
+      if (isValid) {
+        return ipv4Only;
+      }
+    }
+  }
+  
+  // 如果是 IPv4 格式，验证并返回
+  const ipv4Match = ipOnly.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+  if (ipv4Match) {
+    const ipv4 = ipv4Match[1];
+    const parts = ipv4.split('.');
+    const isValid = parts.every(part => {
+      const num = parseInt(part, 10);
+      return num >= 0 && num <= 255;
+    });
+    if (isValid) {
       return ipv4;
     }
   }
   
-  // 如果已经是 IPv4 格式，直接返回
-  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) {
-    return ip;
+  // 如果是 IPv6 地址，验证基本格式并返回
+  // IPv6 格式：xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx 或压缩格式
+  if (ipOnly.includes(':') && !ipOnly.includes('.')) {
+    // 基本IPv6格式验证（简化版，主要检查是否包含冒号且不是IPv4）
+    // 移除可能的方括号
+    const ipv6 = ipOnly.replace(/^\[|\]$/g, '');
+    // 检查是否包含IPv6特征（冒号分隔的十六进制）
+    if (/^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/.test(ipv6) || 
+        /^::/.test(ipv6) || 
+        /::$/.test(ipv6) ||
+        ipv6.includes('::')) {
+      return ipv6;
+    }
   }
   
-  // 如果是纯 IPv6 地址，返回 null（跳过）
   return null;
 };
 
-// 获取客户端IP地址（支持反向代理）
+// 获取客户端IP地址（支持反向代理，支持IPv4和IPv6）
 const getClientIp = (req) => {
   // 优先使用 Express 的 req.ip（需要 trust proxy 设置）
   if (req.ip && req.ip !== '::ffff:127.0.0.1' && req.ip !== '::1') {
-    const ip = extractIPv4(req.ip);
-    if (ip && ip !== '127.0.0.1') {
+    const ip = cleanIp(req.ip);
+    if (ip && ip !== '127.0.0.1' && ip !== '::1') {
       return ip;
     }
   }
@@ -158,9 +211,9 @@ const getClientIp = (req) => {
     // X-Forwarded-For 可能包含多个 IP（第一个是客户端真实 IP）
     const ips = forwardedFor.split(',').map(ip => ip.trim());
     for (const realIp of ips) {
-      const ipv4 = extractIPv4(realIp);
-      if (ipv4 && ipv4 !== '127.0.0.1') {
-        return ipv4;
+      const cleanedIp = cleanIp(realIp);
+      if (cleanedIp && cleanedIp !== '127.0.0.1' && cleanedIp !== '::1') {
+        return cleanedIp;
       }
     }
   }
@@ -168,9 +221,9 @@ const getClientIp = (req) => {
   // 尝试从 X-Real-IP 头获取（Nginx 等代理服务器）
   const realIp = req.headers['x-real-ip'];
   if (realIp && realIp !== '::1') {
-    const ipv4 = extractIPv4(realIp);
-    if (ipv4 && ipv4 !== '127.0.0.1') {
-      return ipv4;
+    const cleanedIp = cleanIp(realIp);
+    if (cleanedIp && cleanedIp !== '127.0.0.1' && cleanedIp !== '::1') {
+      return cleanedIp;
     }
   }
   
@@ -180,7 +233,7 @@ const getClientIp = (req) => {
              (req.connection?.socket ? req.connection.socket.remoteAddress : null);
   
   if (ip) {
-    const cleanedIp = extractIPv4(ip);
+    const cleanedIp = cleanIp(ip);
     if (cleanedIp && cleanedIp !== '127.0.0.1' && cleanedIp !== '::1') {
       return cleanedIp;
     }
@@ -280,7 +333,24 @@ const queryIpLocationFromIpApi = (ip) => {
 // 获取IP归属地信息
 const getIpLocation = async (ip) => {
   // 跳过本地IP和unknown
-  if (!ip || ip === 'unknown' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+  if (!ip || ip === 'unknown') {
+    return null;
+  }
+  
+  // 跳过本地IPv4地址
+  if (ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+    return null;
+  }
+  
+  // 跳过本地IPv6地址
+  if (ip === '::1' || 
+      ip === '::ffff:127.0.0.1' || 
+      ip.startsWith('fe80:') || 
+      ip.startsWith('fc00:') || 
+      ip.startsWith('fd00:') ||
+      ip.startsWith('::ffff:192.168.') ||
+      ip.startsWith('::ffff:10.') ||
+      ip.startsWith('::ffff:172.')) {
     return null;
   }
 
