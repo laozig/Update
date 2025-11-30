@@ -258,7 +258,7 @@ const getIpLocation = async (ip) => {
 };
 
 // 记录下载日志
-const logDownload = async (projectId, version, fileName, clientIp, userAgent, status = '成功') => {
+const logDownload = (projectId, version, fileName, clientIp, userAgent, status = '成功') => {
   try {
     const now = new Date();
     const year = now.getFullYear();
@@ -295,9 +295,37 @@ const logDownload = async (projectId, version, fileName, clientIp, userAgent, st
       }
     }
     
-    // 获取IP归属地
-    const ipLocation = await getIpLocation(clientIp);
-    const locationText = ipLocation ? `, 归属地: ${ipLocation}` : '';
+    // 先尝试快速获取IP归属地（从缓存），但不阻塞日志记录
+    let ipLocation = null;
+    let locationText = '';
+    
+    // 先检查缓存，如果有缓存则立即使用
+    if (ipLocationCache.has(clientIp)) {
+      const cached = ipLocationCache.get(clientIp);
+      if (Date.now() - cached.timestamp < IP_LOCATION_CACHE_TTL) {
+        ipLocation = cached.location;
+        locationText = ipLocation ? `, 归属地: ${ipLocation}` : '';
+      }
+    }
+    
+    // 如果没有缓存，异步查询（不阻塞日志记录）
+    if (!ipLocation) {
+      getIpLocation(clientIp).then(location => {
+        if (location) {
+          // 异步更新日志文件（可选，不影响主要日志）
+          const updateLogEntry = `[${timestamp}] [下载-归属地更新] 项目: ${projectId}, IP: ${clientIp}, 归属地: ${location}\n`;
+          try {
+            const logFilePath = path.join(__dirname, '..', 'api-server.log');
+            fs.appendFileSync(logFilePath, updateLogEntry, 'utf8');
+          } catch (err) {
+            // 忽略更新日志的错误
+          }
+        }
+      }).catch(() => {
+        // 忽略查询失败
+      });
+    }
+    
     const statusText = status === '成功' ? '' : `, 状态: ${status}`;
     const logEntry = `[${timestamp}] [下载] 项目: ${projectId}, 版本: ${version}, 文件: ${fileName}, IP: ${clientIp}${locationText}, User-Agent: ${userAgent || 'unknown'}${statusText}\n`;
     
@@ -318,7 +346,17 @@ const logDownload = async (projectId, version, fileName, clientIp, userAgent, st
     const consoleLocationText = ipLocation ? ` (${ipLocation})` : '';
     console.log(`[下载记录] ${projectId} v${version} - IP: ${clientIp}${consoleLocationText}`);
   } catch (err) {
-    console.error('记录下载日志失败:', err);
+    // 即使出错也要尝试记录基本日志
+    try {
+      const now = new Date();
+      const timestamp = now.toISOString().replace('T', ' ').substring(0, 19);
+      const logEntry = `[${timestamp}] [下载] 项目: ${projectId}, 版本: ${version}, 文件: ${fileName}, IP: ${clientIp}, 错误: ${err.message}\n`;
+      const logFilePath = path.join(__dirname, '..', 'api-server.log');
+      fs.appendFileSync(logFilePath, logEntry, 'utf8');
+      console.log(`[下载记录-错误] ${projectId} v${version} - IP: ${clientIp} - 错误: ${err.message}`);
+    } catch (fallbackErr) {
+      console.error('记录下载日志失败（包括回退方案）:', fallbackErr);
+    }
   }
 };
 
@@ -798,9 +836,7 @@ app.get('/download/:projectId/latest', (req, res) => {
     const userAgent = req.get('user-agent');
     
     // 记录下载日志（在下载开始前记录）
-    logDownload(projectId, latestVersion.version, latestVersion.fileName, clientIp, userAgent).catch(err => {
-      console.error('记录下载日志失败:', err);
-    });
+    logDownload(projectId, latestVersion.version, latestVersion.fileName, clientIp, userAgent);
     
     // 使用回调处理下载完成/错误
     res.download(filePath, (err) => {
@@ -815,9 +851,7 @@ app.get('/download/:projectId/latest', (req, res) => {
   } else {
     // 文件不存在时也记录日志
     const clientIp = getClientIp(req);
-    logDownload(projectId, latestVersion.version || 'unknown', latestVersion.fileName || 'unknown', clientIp, req.get('user-agent'), '文件不存在').catch(err => {
-      console.error('记录下载日志失败:', err);
-    });
+    logDownload(projectId, latestVersion.version || 'unknown', latestVersion.fileName || 'unknown', clientIp, req.get('user-agent'), '文件不存在');
     res.status(404).json({ error: `文件 ${latestVersion.fileName} 不存在` });
   }
 });
@@ -873,9 +907,7 @@ app.get('/download/:projectId/:version([^/]+)', (req, res) => {
     const userAgent = req.get('user-agent');
     
     // 记录下载日志（在下载开始前记录）
-    logDownload(projectId, version, versionInfo.fileName, clientIp, userAgent).catch(err => {
-      console.error('记录下载日志失败:', err);
-    });
+    logDownload(projectId, version, versionInfo.fileName, clientIp, userAgent);
     
     console.log(`下载文件: ${filePath}`);
     // 使用回调处理下载完成/错误
@@ -891,9 +923,7 @@ app.get('/download/:projectId/:version([^/]+)', (req, res) => {
   } else {
     // 文件不存在时也记录日志
     const clientIp = getClientIp(req);
-    logDownload(projectId, version, versionInfo.fileName || 'unknown', clientIp, req.get('user-agent'), '文件不存在').catch(err => {
-      console.error('记录下载日志失败:', err);
-    });
+    logDownload(projectId, version, versionInfo.fileName || 'unknown', clientIp, req.get('user-agent'), '文件不存在');
     res.status(404).json({ error: `文件 ${versionInfo.fileName} 不存在` });
   }
 });
