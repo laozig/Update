@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const http = require('http');
 
 const app = express();
 const port = process.env.PORT || 33001;
@@ -89,6 +90,23 @@ const checkAndRotateLogs = () => {
       }
     }
   });
+  
+  // 清理过期的IP归属地缓存
+  const now = Date.now();
+  const cutoffTime = now - IP_LOCATION_CACHE_TTL;
+  for (const [ip, cached] of ipLocationCache.entries()) {
+    if (cached.timestamp < cutoffTime) {
+      ipLocationCache.delete(ip);
+    }
+  }
+  
+  // 如果缓存过大，清理最老的一半
+  if (ipLocationCache.size > 1000) {
+    const entries = Array.from(ipLocationCache.entries());
+    entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+    const toDelete = entries.slice(0, Math.floor(entries.length / 2));
+    toDelete.forEach(([ip]) => ipLocationCache.delete(ip));
+  }
 };
 
 // 定期检查日志大小（每小时检查一次）
@@ -97,13 +115,34 @@ setInterval(checkAndRotateLogs, 60 * 60 * 1000);
 // 启动时检查一次日志大小
 checkAndRotateLogs();
 
+// 验证并提取 IPv4 地址
+const extractIPv4 = (ip) => {
+  if (!ip) return null;
+  
+  // 如果是 IPv6 映射的 IPv4（格式：::ffff:xxx.xxx.xxx.xxx），提取 IPv4 部分
+  if (ip.startsWith('::ffff:')) {
+    const ipv4 = ip.replace(/^::ffff:/, '');
+    // 验证是否是有效的 IPv4 格式
+    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(ipv4)) {
+      return ipv4;
+    }
+  }
+  
+  // 如果已经是 IPv4 格式，直接返回
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) {
+    return ip;
+  }
+  
+  // 如果是纯 IPv6 地址，返回 null（跳过）
+  return null;
+};
+
 // 获取客户端IP地址（支持反向代理）
 const getClientIp = (req) => {
   // 优先使用 Express 的 req.ip（需要 trust proxy 设置）
   if (req.ip && req.ip !== '::ffff:127.0.0.1' && req.ip !== '::1') {
-    // 如果 IP 是 IPv6 映射的 IPv4，提取 IPv4 部分
-    const ip = req.ip.replace(/^::ffff:/, '');
-    if (ip !== '127.0.0.1') {
+    const ip = extractIPv4(req.ip);
+    if (ip && ip !== '127.0.0.1') {
       return ip;
     }
   }
@@ -113,16 +152,21 @@ const getClientIp = (req) => {
   if (forwardedFor) {
     // X-Forwarded-For 可能包含多个 IP（第一个是客户端真实 IP）
     const ips = forwardedFor.split(',').map(ip => ip.trim());
-    const realIp = ips[0];
-    if (realIp && realIp !== '127.0.0.1' && realIp !== '::1') {
-      return realIp;
+    for (const realIp of ips) {
+      const ipv4 = extractIPv4(realIp);
+      if (ipv4 && ipv4 !== '127.0.0.1') {
+        return ipv4;
+      }
     }
   }
   
   // 尝试从 X-Real-IP 头获取（Nginx 等代理服务器）
   const realIp = req.headers['x-real-ip'];
-  if (realIp && realIp !== '127.0.0.1' && realIp !== '::1') {
-    return realIp;
+  if (realIp && realIp !== '::1') {
+    const ipv4 = extractIPv4(realIp);
+    if (ipv4 && ipv4 !== '127.0.0.1') {
+      return ipv4;
+    }
   }
   
   // 最后尝试从连接信息获取
@@ -131,8 +175,8 @@ const getClientIp = (req) => {
              (req.connection?.socket ? req.connection.socket.remoteAddress : null);
   
   if (ip) {
-    const cleanedIp = ip.replace(/^::ffff:/, '');
-    if (cleanedIp !== '127.0.0.1' && cleanedIp !== '::1') {
+    const cleanedIp = extractIPv4(ip);
+    if (cleanedIp && cleanedIp !== '127.0.0.1' && cleanedIp !== '::1') {
       return cleanedIp;
     }
   }
@@ -140,8 +184,81 @@ const getClientIp = (req) => {
   return 'unknown';
 };
 
+// IP归属地缓存
+const ipLocationCache = new Map();
+const IP_LOCATION_CACHE_TTL = 24 * 60 * 60 * 1000; // 24小时缓存
+
+// 获取IP归属地信息
+const getIpLocation = async (ip) => {
+  // 跳过本地IP和unknown
+  if (!ip || ip === 'unknown' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+    return null;
+  }
+
+  // 检查缓存
+  if (ipLocationCache.has(ip)) {
+    const cached = ipLocationCache.get(ip);
+    if (Date.now() - cached.timestamp < IP_LOCATION_CACHE_TTL) {
+      return cached.location;
+    }
+    ipLocationCache.delete(ip);
+  }
+
+  try {
+    // 使用ip-api.com免费API（支持中文，每分钟45次请求）
+    const url = `http://ip-api.com/json/${ip}?lang=zh-CN&fields=status,country,regionName,city,isp`;
+    
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve(null);
+      }, 2000); // 2秒超时
+
+      http.get(url, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          clearTimeout(timeout);
+          try {
+            const result = JSON.parse(data);
+            if (result.status === 'success') {
+              const locationParts = [];
+              if (result.country) locationParts.push(result.country);
+              if (result.regionName) locationParts.push(result.regionName);
+              if (result.city) locationParts.push(result.city);
+              if (result.isp) locationParts.push(result.isp);
+              
+              const location = locationParts.length > 0 ? locationParts.join(' ') : null;
+              
+              // 缓存结果
+              if (location) {
+                ipLocationCache.set(ip, {
+                  location: location,
+                  timestamp: Date.now()
+                });
+              }
+              
+              resolve(location);
+            } else {
+              resolve(null);
+            }
+          } catch (err) {
+            resolve(null);
+          }
+        });
+      }).on('error', () => {
+        clearTimeout(timeout);
+        resolve(null);
+      });
+    });
+  } catch (err) {
+    return null;
+  }
+};
+
 // 记录下载日志
-const logDownload = (projectId, version, fileName, clientIp, userAgent, status = '成功') => {
+const logDownload = async (projectId, version, fileName, clientIp, userAgent, status = '成功') => {
   try {
     const now = new Date();
     const year = now.getFullYear();
@@ -178,8 +295,11 @@ const logDownload = (projectId, version, fileName, clientIp, userAgent, status =
       }
     }
     
+    // 获取IP归属地
+    const ipLocation = await getIpLocation(clientIp);
+    const locationText = ipLocation ? `, 归属地: ${ipLocation}` : '';
     const statusText = status === '成功' ? '' : `, 状态: ${status}`;
-    const logEntry = `[${timestamp}] [下载] 项目: ${projectId}, 版本: ${version}, 文件: ${fileName}, IP: ${clientIp}, User-Agent: ${userAgent || 'unknown'}${statusText}\n`;
+    const logEntry = `[${timestamp}] [下载] 项目: ${projectId}, 版本: ${version}, 文件: ${fileName}, IP: ${clientIp}${locationText}, User-Agent: ${userAgent || 'unknown'}${statusText}\n`;
     
     const logFilePath = path.join(__dirname, '..', 'api-server.log');
     
@@ -195,7 +315,8 @@ const logDownload = (projectId, version, fileName, clientIp, userAgent, status =
     fs.appendFileSync(logFilePath, logEntry, 'utf8');
     
     // 同时输出到控制台
-    console.log(`[下载记录] ${projectId} v${version} - IP: ${clientIp}`);
+    const consoleLocationText = ipLocation ? ` (${ipLocation})` : '';
+    console.log(`[下载记录] ${projectId} v${version} - IP: ${clientIp}${consoleLocationText}`);
   } catch (err) {
     console.error('记录下载日志失败:', err);
   }
@@ -677,7 +798,9 @@ app.get('/download/:projectId/latest', (req, res) => {
     const userAgent = req.get('user-agent');
     
     // 记录下载日志（在下载开始前记录）
-    logDownload(projectId, latestVersion.version, latestVersion.fileName, clientIp, userAgent);
+    logDownload(projectId, latestVersion.version, latestVersion.fileName, clientIp, userAgent).catch(err => {
+      console.error('记录下载日志失败:', err);
+    });
     
     // 使用回调处理下载完成/错误
     res.download(filePath, (err) => {
@@ -692,7 +815,9 @@ app.get('/download/:projectId/latest', (req, res) => {
   } else {
     // 文件不存在时也记录日志
     const clientIp = getClientIp(req);
-    logDownload(projectId, latestVersion.version || 'unknown', latestVersion.fileName || 'unknown', clientIp, req.get('user-agent'), '文件不存在');
+    logDownload(projectId, latestVersion.version || 'unknown', latestVersion.fileName || 'unknown', clientIp, req.get('user-agent'), '文件不存在').catch(err => {
+      console.error('记录下载日志失败:', err);
+    });
     res.status(404).json({ error: `文件 ${latestVersion.fileName} 不存在` });
   }
 });
@@ -748,7 +873,9 @@ app.get('/download/:projectId/:version([^/]+)', (req, res) => {
     const userAgent = req.get('user-agent');
     
     // 记录下载日志（在下载开始前记录）
-    logDownload(projectId, version, versionInfo.fileName, clientIp, userAgent);
+    logDownload(projectId, version, versionInfo.fileName, clientIp, userAgent).catch(err => {
+      console.error('记录下载日志失败:', err);
+    });
     
     console.log(`下载文件: ${filePath}`);
     // 使用回调处理下载完成/错误
@@ -764,7 +891,9 @@ app.get('/download/:projectId/:version([^/]+)', (req, res) => {
   } else {
     // 文件不存在时也记录日志
     const clientIp = getClientIp(req);
-    logDownload(projectId, version, versionInfo.fileName || 'unknown', clientIp, req.get('user-agent'), '文件不存在');
+    logDownload(projectId, version, versionInfo.fileName || 'unknown', clientIp, req.get('user-agent'), '文件不存在').catch(err => {
+      console.error('记录下载日志失败:', err);
+    });
     res.status(404).json({ error: `文件 ${versionInfo.fileName} 不存在` });
   }
 });
