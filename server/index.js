@@ -471,10 +471,6 @@ const logDownload = async (projectId, version, fileName, clientIp, userAgent, st
     `文件: ${fileName}\n` +
     `IP: ${clientIp}${locationText || ''}\n` +
     `User-Agent: ${userAgent || 'unknown'}${statusText || ''}\n`;
-  
-
-
-
 
     const logFilePath = path.join(__dirname, '..', 'api-server.log');
     
