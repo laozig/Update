@@ -45,6 +45,10 @@ const MAX_LOG_FILES = 5; // 最多保留的日志文件数量
 const downloadLogCache = new Map();
 const DOWNLOAD_LOG_CACHE_TTL = 5000; // 5秒内的重复请求不重复记录
 
+// IP归属地缓存
+const ipLocationCache = new Map();
+const IP_LOCATION_CACHE_TTL = 24 * 60 * 60 * 1000; // 24小时缓存
+
 // 日志文件轮转
 const rotateLogFiles = (logFileName) => {
   try {
@@ -183,10 +187,6 @@ const getClientIp = (req) => {
   
   return 'unknown';
 };
-
-// IP归属地缓存
-const ipLocationCache = new Map();
-const IP_LOCATION_CACHE_TTL = 24 * 60 * 60 * 1000; // 24小时缓存
 
 // 获取IP归属地信息
 const getIpLocation = async (ip) => {
