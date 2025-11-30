@@ -463,8 +463,19 @@ const logDownload = async (projectId, version, fileName, clientIp, userAgent, st
     }
     
     const statusText = status === '成功' ? '' : `, 状态: ${status}`;
-    const logEntry = `[${timestamp}] [下载] 项目: ${projectId}, 版本: ${version}, 文件: ${fileName}, IP: ${clientIp}${locationText}, User-Agent: ${userAgent || 'unknown'}${statusText}\n`;
-    
+    //const logEntry = `[${timestamp}] [下载] 项目: ${projectId}, 版本: ${version}, 文件: ${fileName}, IP: ${clientIp}${locationText}, User-Agent: ${userAgent || 'unknown'}${statusText}\n`;
+    const logEntry =
+    `[${timestamp}] [下载]\n` +
+    `项目: ${projectId}\n` +
+    `版本: ${version}\n` +
+    `文件: ${fileName}\n` +
+    `IP: ${clientIp}${locationText || ''}\n` +
+    `User-Agent: ${userAgent || 'unknown'}${statusText || ''}\n`;
+  
+
+
+
+
     const logFilePath = path.join(__dirname, '..', 'api-server.log');
     
     // 检查日志文件大小，必要时轮转
